@@ -1,0 +1,22 @@
+services:
+  mi-research-tg-bot:
+    build: .
+    image: mi-research-tg-bot:1.0.0
+    container_name: mi-research-tg-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Moscow
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./config:/app/config:ro
+      - ./backups:/app/backups
+      - mi-research-db:/app/database
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  mi-research-db:
