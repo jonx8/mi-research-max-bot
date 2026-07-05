@@ -30,14 +30,14 @@ class FollowUpSession(Base):
     __tablename__ = 'follow_up_sessions'
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    telegram_id_encrypted: Mapped[str] = mapped_column(String, nullable=False, index=True)  # Encrypted telegram_id
+    max_id_encrypted: Mapped[str] = mapped_column(String, nullable=False, index=True)  # Encrypted Max ID
     follow_up_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
     ppa_7d: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
     @property
-    def telegram_id(self) -> int:
-        """Returns the decrypted telegram_id."""
+    def max_id(self) -> int:
+        """Returns the decrypted max_id."""
         from src.utils.encryption import get_encryption_service
         encryption_service = get_encryption_service()
-        return encryption_service.decrypt_to_int(self.telegram_id_encrypted)
+        return encryption_service.decrypt_to_int(self.max_id_encrypted)

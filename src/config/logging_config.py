@@ -22,9 +22,6 @@ def setup_logging(config: Config) -> None:
     root_logger.setLevel(log_level)
     root_logger.addHandler(console_handler)
 
-    ptb_logger = logging.getLogger('telegram.ext')
-    ptb_logger.setLevel(logging.WARNING)
-
     sqlalchemy_logger = logging.getLogger('sqlalchemy')
     sqlalchemy_logger.setLevel(logging.WARNING)
 

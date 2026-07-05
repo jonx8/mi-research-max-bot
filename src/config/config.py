@@ -19,12 +19,12 @@ class Config:
     DATABASE_URL = f'sqlite+aiosqlite:///{DB_NAME}'
 
     # Интервалы для тестирования (в минутах)
-    FOLLOW_UP_INTERVALS = (60 * 24, 3 * 60 * 24)
-    WEEKLY_CHECKIN_INTERVAL = 60 * 24
-    FINAL_SURVEY_INTERVAL = 60 * 24 * 6
-    DAILY_MORNING_SENDING_TIME = time(10, 00)  # 10:00
-    DAILY_HIGH_DEP_SENDING_TIME = time(13, 00)  # 13:00
-    DAILY_EVENING_SENDING_TIME = time(20, 0)  # 20:00
+    FOLLOW_UP_INTERVALS = (1, 3)
+    WEEKLY_CHECKIN_INTERVAL = 1
+    FINAL_SURVEY_INTERVAL = 1
+    DAILY_MORNING_SENDING_TIME = time(0, 00)  # 10:00
+    DAILY_HIGH_DEP_SENDING_TIME = time(0, 00)  # 13:00
+    DAILY_EVENING_SENDING_TIME = time(0, 0)  # 20:00
 
     # Для продакшена
     # FOLLOW_UP_INTERVALS = [30 * 24 * 60, 90 * 24 * 60]  # 30 и 90 дней в минутах
@@ -34,7 +34,7 @@ class Config:
     # DAILY_EVENING_SENDING_TIME = time(20, 0)  # 20:00
 
     # Logging
-    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+    LOG_LEVEL = os.getenv('LOG_LEVEL', 'DEBUG')
 
     # Google Sheets
     GOOGLE_SHEETS_CREDENTIALS_PATH = os.getenv('GOOGLE_SHEETS_CREDENTIALS_PATH', "config/mi-research-tg-bot.json")

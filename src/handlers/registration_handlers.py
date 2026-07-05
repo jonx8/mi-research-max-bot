@@ -1,46 +1,103 @@
 import logging
 
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from telegram.ext import ContextTypes
+from maxapi.enums import ParseMode
+from maxapi.types import BotStarted
+from maxapi.types.attachments.buttons.callback_button import CallbackButton
+from maxapi.types.updates.message_callback import MessageCallback
+from maxapi.types.updates.message_created import MessageCreated
+from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
+from payloads import GenderPayload, BackPayload, ClinicCenterPayload, QuitAttemptsPayload, VapePayload, \
+    SmokerHouseholdPayload, MedicalHelpPayload, StartQuestionnairePayload, AnswerPayload, ConsentPayload
 from src.exceptions import ValidationError
-from src.services import ParticipantService
-from src.services import RegistrationOrchestrator, QuestionData
-from src.services import RegistrationStep
+from src.services import ParticipantService, RegistrationOrchestrator, RegistrationStep
 
 logger = logging.getLogger(__name__)
-
 CLINIC_CENTERS = {
-    "clinic_center_ulyanovsk": "ГУЗ Ульяновская областная больница",
+    "ulyanovsk": "ГУЗ Ульяновская областная больница",
+}
+
+BACK_STEPS = {
+    "age": (RegistrationStep.AGE, "Отлично! Давайте начнем регистрацию.\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)", "consent"),
+    "gender": (RegistrationStep.GENDER, "👤 **Выберите ваш пол:**", "age"),
+    "clinic_center": (RegistrationStep.CLINIC_CENTER, "🏥 **В каком клиническом центре вы находитесь?**", "gender"),
+    "smoking_years": (RegistrationStep.SMOKING_YEARS, "🚬 **Расскажите о вашем опыте курения**\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)", "clinic_center"),
+    "cigs_per_day": (RegistrationStep.CIGS_PER_DAY, "📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)", "smoking_years"),
+    "quit_attempts": (RegistrationStep.QUIT_ATTEMPTS, "📝 **Были ли у вас попытки бросить курить ранее?**", "cigs_per_day"),
+    "vape_usage": (RegistrationStep.VAPE_USAGE, "📝 **Используете ли вы электронные сигареты/вейп?**", "quit_attempts"),
+    "smoker_household": (RegistrationStep.SMOKER_HOUSEHOLD, "📝 **Курит ли кто-то ещё у вас дома/в семье?**", "vape_usage"),
+    "medical_help": (RegistrationStep.MEDICAL_HELP, "📝 **Получали ли вы ранее лекарственную помощь или консультацию врача для отказа от курения?**", "smoker_household"),
+}
+
+BACK_KEYBOARDS = {
+    "age": lambda: _build_back_row("consent"),
+    "gender": lambda: _build_gender_keyboard() + _build_back_row("age"),
+    "clinic_center": lambda: _build_clinic_center_keyboard() + _build_back_row("gender"),
+    "smoking_years": lambda: _build_back_row("clinic_center"),
+    "cigs_per_day": lambda: _build_back_row("smoking_years"),
+    "quit_attempts": lambda: _build_quit_attempts_keyboard() + _build_back_row("cigs_per_day"),
+    "vape_usage": lambda: _build_vape_keyboard() + _build_back_row("quit_attempts"),
+    "smoker_household": lambda: _build_smoker_household_keyboard() + _build_back_row("vape_usage"),
+    "medical_help": lambda: _build_medical_help_keyboard() + _build_back_row("smoker_household"),
 }
 
 
+def _build_back_row(target: str) -> list:
+    return [CallbackButton(text="◀️ Назад", payload=BackPayload(target=target).pack())]
+
+
+def _build_gender_keyboard() -> list:
+    return [
+        CallbackButton(text="👨 Мужской", payload=GenderPayload(value="male").pack()),
+        CallbackButton(text="👩 Женский", payload=GenderPayload(value="female").pack())
+    ]
+
+
+def _build_clinic_center_keyboard() -> list:
+    return [CallbackButton(text=name, payload=ClinicCenterPayload(center=cb_data).pack()) for cb_data, name in CLINIC_CENTERS.items()]
+
+
+def _build_quit_attempts_keyboard() -> list:
+    return [
+        CallbackButton(text="✅ Да", payload=QuitAttemptsPayload(value="yes").pack()),
+        CallbackButton(text="❌ Нет", payload=QuitAttemptsPayload(value="no").pack())
+    ]
+
+
+def _build_vape_keyboard() -> list:
+    return [
+        CallbackButton(text="✅ Да", payload=VapePayload(value="yes").pack()),
+        CallbackButton(text="❌ Нет", payload=VapePayload(value="no").pack())
+    ]
+
+
+def _build_smoker_household_keyboard() -> list:
+    return [
+        CallbackButton(text="✅ Да", payload=SmokerHouseholdPayload(value="yes").pack()),
+        CallbackButton(text="❌ Нет", payload=SmokerHouseholdPayload(value="no").pack())
+    ]
+
+
+def _build_medical_help_keyboard() -> list:
+    return [
+        CallbackButton(text="✅ Да", payload=MedicalHelpPayload(value="yes").pack()),
+        CallbackButton(text="❌ Нет", payload=MedicalHelpPayload(value="no").pack()),
+        CallbackButton(text="🤔 Не помню", payload=MedicalHelpPayload(value="not_sure").pack())
+    ]
+
+
+def _make_keyboard(rows: list) -> list:
+    builder = InlineKeyboardBuilder()
+    for row in rows:
+        if isinstance(row, list):
+            builder.row(*row)
+        else:
+            builder.row(row)
+    return [builder.as_markup()]
+
+
 class RegistrationHandlers:
-    """
-    Handlers for user registration flow.
-
-    Manages the complete registration process including:
-    - Consent agreement
-    - Demographic data collection (age, gender)
-    - Smoking history (years, cigarettes per day)
-    - Quit attempts and vape usage
-    - Household smoking status
-    - Medical help history
-    - Fagerstrom and Prochaska questionnaires
-    """
-
-    def __init__(
-            self,
-            orchestrator: RegistrationOrchestrator,
-            participant_service: ParticipantService,
-    ):
-        """
-        Initialize registration handlers.
-
-        Args:
-            orchestrator: Orchestrator managing registration state machine
-            participant_service: Service for participant data management
-        """
+    def __init__(self, orchestrator: RegistrationOrchestrator, participant_service: ParticipantService):
         self._orchestrator = orchestrator
         self._participant_service = participant_service
         self._text_step_handlers = {
@@ -49,884 +106,224 @@ class RegistrationHandlers:
             RegistrationStep.CIGS_PER_DAY: self.handle_cigs_per_day,
         }
 
-    @staticmethod
-    async def _delete_user_message(
-            update: Update,
-            _: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """
-        Delete user's message to keep chat clean.
-
-        Args:
-            update: Telegram update object
-            _: Context object (unused)
-        """
-        try:
-            await update.message.delete()
-        except Exception as e:
-            logger.warning(f"Не удалось удалить сообщение пользователя {update.effective_user.id}: {e}")
-
-    async def _edit_last_bot_message(
-            self,
-            telegram_id: int,
-            context: ContextTypes.DEFAULT_TYPE,
-            text: str,
-            reply_markup: InlineKeyboardMarkup | None = None,
-            parse_mode: str | None = None
-    ) -> None:
-        """
-        Edit the last bot message for the specified user.
-
-        Args:
-            telegram_id: User's Telegram ID
-            context: Telegram context object
-            text: New message text
-            reply_markup: Optional inline keyboard markup
-            parse_mode: Optional parse mode for message formatting
-        """
-        last_msg_id = await self._orchestrator.get_last_bot_message_id(telegram_id)
-        if not last_msg_id:
-            logger.error(f"ID последнего сообщения бота не найден для пользователя {telegram_id}")
+    async def handle_start(self, event: MessageCreated | BotStarted):
+        max_id = event.from_user.user_id
+        if await self._participant_service.exists(max_id):
+            participant = await self._participant_service.get_by_max_id(max_id)
+            logger.info(f"Пользователь уже зарегистрирован (participant_code={participant.participant_code})")
+            await event.send(f"✅ Вы уже зарегистрированы!\nКод: `{participant.participant_code}`\n", format=ParseMode.MARKDOWN)
             return
-
-        try:
-            await context.bot.edit_message_text(
-                chat_id=telegram_id,
-                message_id=last_msg_id,
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-        except Exception as e:
-            logger.warning(f"Не удалось отредактировать сообщение {last_msg_id} для пользователя: {e}")
-            msg = await context.bot.send_message(
-                chat_id=telegram_id,
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-            await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def handle_text_for_step(
-            self,
-            update: Update,
-            context: ContextTypes.DEFAULT_TYPE,
-            step: RegistrationStep
-    ) -> None:
-        """
-        Handle text input for the specified registration step.
-
-        Routes text input to the appropriate handler for the current step.
-
-        Args:
-            update: Telegram update object
-            context: Telegram context object
-            step: Current registration step
-        """
-        handler = self._text_step_handlers.get(step)
-
-        if handler:
-            await handler(update, context)  # type: ignore
-            return
-
-        await update.message.reply_text(
-            "📝 Пожалуйста, используйте кнопки для ответа.",
-            parse_mode='Markdown'
-        )
-
-    async def start(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle /start command.
-
-        Shows welcome message and checks if user is already registered.
-
-        Args:
-            update: Telegram update object
-            _: Context object (unused)
-        """
-        telegram_id = update.effective_user.id
-        logger.info(f"Команда /start от пользователя")
-
-        if await self._participant_service.exists(telegram_id):
-            participant = await self._participant_service.get_by_telegram_id(telegram_id)
-            keyboard = await self._participant_service.get_main_keyboard(telegram_id)
-            logger.info(
-                f"Пользователь уже зарегистрирован (participant_code={participant.participant_code})"
-            )
-            await update.message.reply_text(
-                f"✅ Вы уже зарегистрированы!\n"
-                f"Код: `{participant.participant_code}`\n",
-                parse_mode='Markdown',
-                reply_markup=keyboard
-            )
-            return
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ ДА, СОГЛАСЕН", callback_data="consent_yes")],
-            [InlineKeyboardButton("❌ НЕТ, ОТКАЗЫВАЮСЬ", callback_data="consent_no")]
-        ])
 
         logger.info(f"Пользователь не зарегистрирован, показано согласие на участие")
-
-        await update.message.reply_text(
-            "🎯 **ДОБРО ПОЖАЛОВАТЬ В ИССЛЕДОВАНИЕ TELEGRAM-MI!**\n\n"
+        await event.send(
+            "🎯 **ДОБРО ПОЖАЛОВАТЬ В ИССЛЕДОВАНИЕ max-MI!**\n\n"
             "Это исследование помощи в отказе от курения после перенесенного инфаркта миокарда.\n\n"
             "**УСЛОВИЯ УЧАСТИЯ:**\n"
             "• Исследование длится 6 месяцев\n"
             "• Ваши данные полностью анонимны\n"
             "• Вы можете выйти из исследования в любой момент\n\n"
             "Вы согласны участвовать в исследовании?",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
+            format=ParseMode.MARKDOWN,
+            attachments=_make_keyboard([
+                CallbackButton(text="✅ ДА, СОГЛАСЕН", payload=ConsentPayload(choice="yes").pack()),
+                CallbackButton(text="❌ НЕТ, ОТКАЗЫВАЮСЬ", payload=ConsentPayload(choice="no").pack())
+            ])
         )
 
-    async def handle_consent(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle user consent response.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        user_id = query.from_user.id
-        await query.answer()
-
-        if query.data == "consent_yes":
+    async def handle_consent(self, event: MessageCallback, payload: ConsentPayload) -> None:
+        user_id = event.callback.user.user_id
+        if payload.choice == "yes":
             logger.info(f"Пользователь дал согласие на участие в исследовании")
             await self._orchestrator.start_registration(user_id)
-
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_consent")]
-            ])
-            msg = await query.edit_message_text(
-                "Отлично! Давайте начнем регистрацию.\n\n"
-                "📝 **Введите ваш возраст:**\n"
-                "(число от 18 до 120 лет)",
-                parse_mode='Markdown',
-                reply_markup=keyboard
+            await event.edit(
+                text="Отлично! Давайте начнем регистрацию.\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)",
+                format=ParseMode.MARKDOWN,
+                attachments=_make_keyboard([_build_back_row("consent")])
             )
-            await self._orchestrator.set_last_bot_message_id(user_id, msg.message_id)
         else:
             logger.info(f"Пользователь отказался от участия в исследовании")
-            await query.edit_message_text(
-                "Спасибо за ваше время! ❤️\nЕсли передумаете - просто напишите /start"
-            )
+            await event.edit(text="Спасибо за ваше время! ❤️\nЕсли передумаете - просто напишите /start", attachments=[])
 
-    async def handle_age(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle age input from user.
-
-        Args:
-            update: Telegram update object with message text
-            context: Telegram context object
-        """
-        telegram_id = update.effective_user.id
-        user_input = update.message.text
-
-        logger.info(f"Пользователь вводит возраст: '{user_input}'")
-
-        try:
-            age = int(user_input)
-        except ValueError:
-            logger.warning(f"Некорректный ввод возраста от пользователя: '{user_input}'")
-            await self._edit_last_bot_message(
-                telegram_id,
-                context,
-                "📝 **Введите ваш возраст:**\n"
-                "(число от 18 до 120 лет)\n\n"
-                "⚠️ **Ошибка:** пожалуйста, введите число (например: 35)",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_consent")]
-                ]),
-                parse_mode='Markdown'
-            )
-            await self._delete_user_message(update, context)
+    async def handle_text_for_step(self, event: MessageCreated, step: RegistrationStep) -> None:
+        handler = self._text_step_handlers.get(step)
+        if handler:
+            await handler(event)
             return
-
-        try:
-            await self._orchestrator.set_age(telegram_id, age)
-        except ValidationError as e:
-            logger.warning(f"Ошибка валидации возраста для пользователя: {e}")
-            await self._edit_last_bot_message(
-                telegram_id,
-                context,
-                "📝 **Введите ваш возраст:**\n"
-                "(число от 18 до 120 лет)\n\n"
-                f"{e}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_consent")]
-                ]),
-                parse_mode='Markdown'
-            )
-            await self._delete_user_message(update, context)
-            return
-
-        await self._delete_user_message(update, context)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("👨 Мужской", callback_data="gender_male")],
-            [InlineKeyboardButton("👩 Женский", callback_data="gender_female")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_age")]
-        ])
-
-        await self._edit_last_bot_message(
-            telegram_id,
-            context,
-            "👤 **Выберите ваш пол:**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def handle_gender(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle gender selection from user.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        telegram_id = query.from_user.id
-        await query.answer()
-
-        try:
-            await self._orchestrator.set_gender(telegram_id, query.data)
-        except ValidationError as e:
-            logger.warning(f"Ошибка валидации пола для пользователя: {e}")
-            await query.edit_message_text(str(e))
-            return
-
-        keyboard_buttons = [[InlineKeyboardButton(name, callback_data=cb_data)] for cb_data, name in
-                            CLINIC_CENTERS.items()]
-        keyboard_buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back_registration_gender")])
-        keyboard = InlineKeyboardMarkup(keyboard_buttons)
-
-        msg = await query.edit_message_text(
-            "🏥 **В каком клиническом центре вы находитесь?**",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def handle_clinic_center(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle clinic center selection from user.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        telegram_id = query.from_user.id
-        await query.answer()
-
-        try:
-            await self._orchestrator.set_clinic_center(telegram_id, CLINIC_CENTERS[query.data])
-        except (KeyError, ValidationError) as e:
-            logger.warning(f"Ошибка валидации клинического центра для пользователя: {e}")
-            await query.edit_message_text("Некорректное значение клинического центра")
-            return
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_clinic_center")]
-        ])
-
-        msg = await query.edit_message_text(
-            "🚬 **Расскажите о вашем опыте курения**\n\n"
-            "📝 **Сколько лет вы курите?**\n"
-            "(введите целое число лет)",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def handle_smoking_years(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle smoking years input from user.
-
-        Args:
-            update: Telegram update object with message text
-            context: Telegram context object
-        """
-        telegram_id = update.effective_user.id
-        user_input = update.message.text
-
-        logger.info(f"Пользователь вводит стаж курения: '{user_input}' лет")
-
-        try:
-            years = int(user_input)
-        except ValueError:
-            logger.warning(f"Некорректный ввод стажа курения от пользователя: '{user_input}'")
-            await self._edit_last_bot_message(
-                telegram_id,
-                context,
-                "🚬 **Расскажите о вашем опыте курения**\n\n"
-                "📝 **Сколько лет вы курите?**\n"
-                "(введите целое число лет)\n\n"
-                "⚠️ **Ошибка:** пожалуйста, введите число",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_clinic_center")],
-                ]),
-                parse_mode='Markdown'
-            )
-            await self._delete_user_message(update, context)
-            return
-
-        try:
-            await self._orchestrator.set_smoking_years(telegram_id, years)
-        except ValidationError as e:
-            logger.warning(f"Ошибка валидации стажа курения для пользователя: {e}")
-            await self._edit_last_bot_message(
-                telegram_id,
-                context,
-                "🚬 **Расскажите о вашем опыте курения**\n\n"
-                "📝 **Сколько лет вы курите?**\n"
-                "(введите целое число лет)\n\n"
-                f"{e}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_clinic_center")],
-                ]),
-                parse_mode='Markdown'
-            )
-            await self._delete_user_message(update, context)
-            return
-
-        await self._delete_user_message(update, context)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_smoking_years")]
-        ])
-        await self._edit_last_bot_message(
-            telegram_id,
-            context,
-            "📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n"
-            "(введите целое число от 0 до 100)",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def handle_cigs_per_day(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle cigarettes per day input from user.
-
-        Args:
-            update: Telegram update object with message text
-            context: Telegram context object
-        """
-        telegram_id = update.effective_user.id
-        user_input = update.message.text
-
-        logger.info(f"Пользователь вводит количество сигарет в день: '{user_input}'")
-
-        try:
-            cigs = int(user_input)
-        except ValueError:
-            logger.warning(f"Некорректный ввод количества сигарет от пользователя: '{user_input}'")
-            await self._edit_last_bot_message(
-                telegram_id,
-                context,
-                "📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n"
-                "(введите целое число от 0 до 100)\n\n"
-                "⚠️ **Ошибка:** пожалуйста, введите число",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_smoking_years")],
-                ]),
-                parse_mode='Markdown'
-            )
-            await self._delete_user_message(update, context)
-            return
-
-        try:
-            await self._orchestrator.set_cigs_per_day(telegram_id, cigs)
-        except ValidationError as e:
-            logger.warning(f"Ошибка валидации количества сигарет для пользователя: {e}")
-            await self._edit_last_bot_message(
-                telegram_id,
-                context,
-                "📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n"
-                "(введите целое число от 0 до 100)\n\n"
-                f"{e}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_smoking_years")],
-                ]),
-                parse_mode='Markdown'
-            )
-            await self._delete_user_message(update, context)
-            return
-
-        await self._delete_user_message(update, context)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data="quit_attempts_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data="quit_attempts_no")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_cigs_per_day")]
-        ])
-        await self._edit_last_bot_message(
-            telegram_id,
-            context,
-            "📝 **Были ли у вас попытки бросить курить ранее?**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def handle_quit_attempts(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle quit attempts answer.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        await query.answer()
-
-        has_attempts = query.data == "quit_attempts_yes"
-        await self._orchestrator.set_quit_attempts(query.from_user.id, has_attempts)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data="vape_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data="vape_no")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_quit_attempts")]
-        ])
-        await query.edit_message_text(
-            "📝 **Используете ли вы электронные сигареты/вейп?**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def handle_vape_usage(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle vape usage answer.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        await query.answer()
-
-        uses_vape = query.data == "vape_yes"
-        await self._orchestrator.set_uses_vape(query.from_user.id, uses_vape)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data="smoker_household_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data="smoker_household_no")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_vape_usage")]
-        ])
-        await query.edit_message_text(
-            "📝 **Курит ли кто-то ещё у вас дома/в семье?**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def handle_smoker_household(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle household smoker answer.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        await query.answer()
-
-        has_smoker = query.data == "smoker_household_yes"
-        await self._orchestrator.set_smoker_in_household(query.from_user.id, has_smoker)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data="medical_help_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data="medical_help_no")],
-            [InlineKeyboardButton("🤔 Не помню", callback_data="medical_help_not_sure")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_smoker_household")]
-        ])
-        await query.edit_message_text(
-            "📝 **Получали ли вы ранее лекарственную помощь или консультацию врача для отказа от курения?**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def handle_medical_help(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle medical help answer.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        await query.answer()
-
-        mapping = {
-            "medical_help_yes": "Да",
-            "medical_help_no": "Нет",
-            "medical_help_not_sure": "Не помню"
-        }
-        answer = mapping.get(query.data, "Не помню")
-        await self._orchestrator.set_prior_medical_help(query.from_user.id, answer)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ НАЧАТЬ ОПРОС", callback_data="start_fagerstrom")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_medical_help")]
-        ])
-        await query.edit_message_text(
-            "📋 **Отлично! Теперь заполним опросник никотиновой зависимости (Фагерстрём)**\n\n"
-            "Это поможет нам лучше понять ваши привычки курения.\n"
-            "Опросник состоит из 6 вопросов.\n\n"
-            "Готовы начать?",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def start_fagerstrom(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Start Fagerstrom questionnaire.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-
-        await self._orchestrator.start_questionnaire(query.from_user.id, 'fagerstrom')
-        await self._send_current_question(query)
-
-    async def start_prochaska(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Start Prochaska questionnaire.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-
-        await self._orchestrator.start_questionnaire(query.from_user.id, 'prochaska')
-        await self._send_current_question(query)
-
-    async def handle_back(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Handle back navigation.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        telegram_id = query.from_user.id
-
-        logger.info(f"Пользователь нажал кнопку 'Назад' с данными: {query.data}")
-
-        # Handle registration step back navigation
-        back_handlers = {
-            "back_registration_consent": self._handle_back_to_consent,
-            "back_registration_age": self._handle_back_to_age,
-            "back_registration_gender": self._handle_back_to_gender,
-            "back_registration_clinic_center": self._handle_back_to_clinic_center,
-            "back_registration_smoking_years": self._handle_back_to_smoking_years,
-            "back_registration_cigs_per_day": self._handle_back_to_cigs_per_day,
-            "back_registration_quit_attempts": self._handle_back_to_quit_attempts,
-            "back_registration_vape_usage": self._handle_back_to_vape_usage,
-            "back_registration_smoker_household": self._handle_back_to_smoker_household,
-            "back_registration_medical_help": self._handle_back_to_medical_help,
-        }
-
-        if query.data in back_handlers:
-            await back_handlers[query.data](query, telegram_id)  # type:ignore
-            return
-
-        # Handle questionnaire back navigation
-        try:
-            await self._orchestrator.go_to_previous_question(telegram_id)
-        except ValidationError as e:
-            logger.warning(f"Ошибка при возврате к вопросу для пользователя {telegram_id}: {e}")
-            await query.answer(str(e), show_alert=True)
-            return
-
-        await self._send_current_question(query)
-
-    async def _handle_back_to_consent(self, query: CallbackQuery, telegram_id: int) -> None:
-        """Handle back navigation to consent step."""
-        await self._orchestrator.delete_registration_session(telegram_id)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ ДА, СОГЛАСЕН", callback_data="consent_yes")],
-            [InlineKeyboardButton("❌ НЕТ, ОТКАЗЫВАЮСЬ", callback_data="consent_no")]
-        ])
-        await query.edit_message_text(
-            "🎯 **ДОБРО ПОЖАЛОВАТЬ В ИССЛЕДОВАНИЕ TELEGRAM-MI!**\n\n"
-            "Это исследование помощи в отказе от курения после перенесенного инфаркта миокарда.\n\n"
-            "**УСЛОВИЯ УЧАСТИЯ:**\n"
-            "• Исследование длится 6 месяцев\n"
-            "• Ваши данные полностью анонимны\n"
-            "• Вы можете выйти из исследования в любой момент\n\n"
-            "Вы согласны участвовать в исследовании?",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def _handle_back_to_age(self, query: CallbackQuery, telegram_id: int) -> None:
-        """Handle back navigation to age input step."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.AGE)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_consent")]
-        ])
-        msg = await query.edit_message_text(
-            "Отлично! Давайте начнем регистрацию.\n\n"
-            "📝 **Введите ваш возраст:**\n"
-            "(число от 18 до 120 лет)",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def _handle_back_to_gender(self, query, telegram_id: int) -> None:
-        """Handle back navigation to gender selection step."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.GENDER)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("👨 Мужской", callback_data="gender_male")],
-            [InlineKeyboardButton("👩 Женский", callback_data="gender_female")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_age")]
-        ])
-        msg = await query.edit_message_text(
-            "👤 **Выберите ваш пол:**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def _handle_back_to_clinic_center(self, query, telegram_id: int) -> None:
-        """Handle back navigation to clinic center selection step."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.CLINIC_CENTER)
-
-        keyboard_buttons = [[InlineKeyboardButton(name, callback_data=cb_data)] for cb_data, name in
-                            CLINIC_CENTERS.items()]
-        keyboard_buttons.append([InlineKeyboardButton("◀️ Назад", callback_data="back_registration_gender")])
-        keyboard = InlineKeyboardMarkup(keyboard_buttons)
-        msg = await query.edit_message_text(
-            "🏥 **В каком клиническом центре вы находитесь?**",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def _handle_back_to_smoking_years(self, query, telegram_id: int) -> None:
-        """Handle back navigation to smoking years input step."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.SMOKING_YEARS)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_clinic_center")]
-        ])
-        msg = await query.edit_message_text(
-            "🚬 **Расскажите о вашем опыте курения**\n\n"
-            "📝 **Сколько лет вы курите?**\n"
-            "(введите целое число лет)",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def _handle_back_to_cigs_per_day(self, query, telegram_id: int) -> None:
-        """Handle back navigation to cigarettes per day input step."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.CIGS_PER_DAY)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_smoking_years")]
-        ])
-        msg = await query.edit_message_text(
-            "📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n"
-            "(введите целое число от 0 до 100)",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def _handle_back_to_quit_attempts(self, query, telegram_id: int) -> None:
-        """Handle back navigation to quit attempts question."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.QUIT_ATTEMPTS)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data="quit_attempts_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data="quit_attempts_no")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_cigs_per_day")]
-        ])
-        msg = await query.edit_message_text(
-            "📝 **Были ли у вас попытки бросить курить ранее?**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def _handle_back_to_vape_usage(self, query, telegram_id: int) -> None:
-        """Handle back navigation to vape usage question."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.VAPE_USAGE)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data="vape_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data="vape_no")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_quit_attempts")]
-        ])
-        msg = await query.edit_message_text(
-            "📝 **Используете ли вы электронные сигареты/вейп?**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def _handle_back_to_smoker_household(self, query, telegram_id: int) -> None:
-        """Handle back navigation to household smoker question."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.SMOKER_HOUSEHOLD)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data="smoker_household_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data="smoker_household_no")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_vape_usage")]
-        ])
-        msg = await query.edit_message_text(
-            "📝 **Курит ли кто-то ещё у вас дома/в семье?**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def _handle_back_to_medical_help(self, query, telegram_id: int) -> None:
-        """Handle back navigation to medical help question."""
-        await self._orchestrator.go_back_to_step(telegram_id, RegistrationStep.MEDICAL_HELP)
-
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data="medical_help_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data="medical_help_no")],
-            [InlineKeyboardButton("🤔 Не помню", callback_data="medical_help_not_sure")],
-            [InlineKeyboardButton("◀️ Назад", callback_data="back_registration_smoker_household")]
-        ])
-        msg = await query.edit_message_text(
-            "📝 **Получали ли вы ранее лекарственную помощь или консультацию врача для отказа от курения?**",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-        await self._orchestrator.set_last_bot_message_id(telegram_id, msg.message_id)
-
-    async def handle_answer(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
-        """
-        Handle questionnaire answer from callback query.
-
-        Args:
-            update: Telegram update object with callback query
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        telegram_id = query.from_user.id
-
-        parts = query.data.split('_')
-        q_type = parts[1]
-        q_idx = int(parts[2])
-        ans_idx = int(parts[3])
-
-        await self._orchestrator.save_answer(telegram_id, q_type, q_idx, ans_idx)
-
-        if await self._orchestrator.is_questionnaire_completed(telegram_id, q_type):
-            if q_type == 'fagerstrom':
-                await self._handle_fagerstrom_completion(query, telegram_id)
-            elif q_type == 'prochaska':
-                await self._handle_prochaska_completion(query, telegram_id)
-        else:
-            await self._send_current_question(query)
-
-    async def _handle_fagerstrom_completion(self, query, telegram_id: int) -> None:
-        """
-        Handle Fagerstrom questionnaire completion.
-
-        Args:
-            query: Callback query object
-            telegram_id: User's Telegram ID
-        """
-        await query.answer()
-        result = await self._orchestrator.complete_fagerstrom(telegram_id)
-
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("➡️ ПРОДОЛЖИТЬ", callback_data="start_prochaska")
-        ]])
-        await query.edit_message_text(
-            f"📊 **Результаты теста Фагерстрёма:**\n\n"
-            f"• **Общий балл:** {result.score}/10\n"
-            f"• **Уровень зависимости:** {result.level}\n\n"
-            "Теперь заполним опросник мотивации...",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
-
-    async def _handle_prochaska_completion(self, query, telegram_id: int) -> None:
-        """
-        Handle Prochaska questionnaire completion and finalize registration.
-
-        Args:
-            query: Callback query object
-            telegram_id: User's Telegram ID
-        """
-        await self._orchestrator.complete_prochaska(telegram_id)
-
-        participant = await self._orchestrator.finalize_registration(telegram_id)
-        keyboard = await self._participant_service.get_main_keyboard(telegram_id)
-
-        await query.message.delete()
-        await query.answer()
-
-        sos_command_str = f"• 🆘 SOS - Экстренная помощь — техники по борьбе с тягой к курению\n" if participant.group_name == "B" else ""
-
-        await query.message.reply_text(
-            f"✅ **РЕГИСТРАЦИЯ ЗАВЕРШЕНА!**\n\n"
-            f"🆔 **Ваш код участника:** `{participant.participant_code}`\n\n"
-            f"💙 **Спасибо за участие в исследовании!**\n"
-            f"**Доступные команды меню:**\n"
-            f"{sos_command_str}"
-            f"• ℹ️ Мой код участника — показать ваш код участника исследования\n"
-            f"• ℹ️ Помощь — справка по боту",
-            parse_mode='Markdown',
-            reply_markup=keyboard
-        )
-
-    async def _send_current_question(self, query) -> None:
-        """
-        Send current questionnaire question to user.
-
-        Args:
-            query: Callback query object
-        """
-        telegram_id = query.from_user.id
-        q = await self._orchestrator.get_current_question(telegram_id)
-
-        keyboard = self._build_question_keyboard(q)
-        await query.answer()
-
-        await query.edit_message_text(
-            f"📝 **Вопрос {q.number} из {q.total}**\n\n{q.text}",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
+        await event.message.answer("📝 Пожалуйста, используйте кнопки для ответа.")
 
     @staticmethod
-    def _build_question_keyboard(q: QuestionData) -> InlineKeyboardMarkup:
-        """
-        Build inline keyboard for questionnaire question.
+    async def _validate_int_input(event: MessageCreated, min_val: int, max_val: int, error_msg: str) -> int | None:
+        user_input = event.message.body.text if event.message.body else ""
+        logger.info(f"Пользователь вводит: '{user_input}'")
+        try:
+            value = int(user_input)
+            if not (min_val <= value <= max_val):
+                raise ValueError("out of range")
+            return value
+        except ValueError:
+            logger.warning(f"Некорректный ввод от пользователя: '{user_input}'")
+            await event.message.answer(error_msg, format=ParseMode.MARKDOWN)
+            return None
 
-        Args:
-            q: Question data containing options and metadata
+    async def handle_age(self, event: MessageCreated) -> None:
+        max_id = event.from_user.user_id
+        age = await self._validate_int_input(event, 18, 120, "⚠️ **Ошибка:** пожалуйста, введите число (например: 35)\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)")
+        if age is None:
+            return
+        try:
+            await self._orchestrator.set_age(max_id, age)
+        except ValidationError as e:
+            logger.warning(f"Ошибка валидации возраста: {e}")
+            await event.message.answer(f"{e}\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)", format=ParseMode.MARKDOWN)
+            return
+        await event.message.answer("👤 **Выберите ваш пол:**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_gender_keyboard(), _build_back_row("age")]))
 
-        Returns:
-            InlineKeyboardMarkup with answer options and back button if allowed
-        """
-        keyboard = []
+    async def handle_gender_callback(self, event: MessageCallback, payload: GenderPayload) -> None:
+        max_id = event.from_user.user_id
+        try:
+            await self._orchestrator.set_gender(max_id, payload.value)
+        except ValidationError as e:
+            logger.warning(f"Ошибка валидации пола: {e}")
+            await event.edit(text=str(e))
+            return
+        await event.edit(text="🏥 **В каком клиническом центре вы находитесь?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_clinic_center_keyboard(), _build_back_row("gender")]))
+
+    async def handle_clinic_center_callback(self, event: MessageCallback, payload: ClinicCenterPayload) -> None:
+        center_name = CLINIC_CENTERS.get(payload.center)
+        if not center_name:
+            await event.edit(text="Некорректное значение клинического центра")
+            return
+        max_id = event.from_user.user_id
+        try:
+            await self._orchestrator.set_clinic_center(max_id, center_name)
+        except ValidationError as e:
+            logger.warning(f"Ошибка валидации клинического центра: {e}")
+            await event.edit(text="Некорректное значение клинического центра")
+            return
+        await event.edit(text="🚬 **Расскажите о вашем опыте курения**\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_back_row("clinic_center")]))
+
+    async def handle_smoking_years(self, event: MessageCreated) -> None:
+        max_id = event.from_user.user_id
+        years = await self._validate_int_input(event, 0, 120, "⚠️ **Ошибка:** пожалуйста, введите число\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)")
+        if years is None:
+            return
+        try:
+            await self._orchestrator.set_smoking_years(max_id, years)
+        except ValidationError as e:
+            logger.warning(f"Ошибка валидации стажа курения: {e}")
+            await event.message.answer(f"{e}\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)", format=ParseMode.MARKDOWN)
+            return
+        await event.message.answer("📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_back_row("smoking_years")]))
+
+    async def handle_cigs_per_day(self, event: MessageCreated) -> None:
+        max_id = event.message.sender.user_id
+        cigs = await self._validate_int_input(event, 0, 100, "⚠️ **Ошибка:** пожалуйста, введите число\n\n📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)")
+        if cigs is None:
+            return
+        try:
+            await self._orchestrator.set_cigs_per_day(max_id, cigs)
+        except ValidationError as e:
+            logger.warning(f"Ошибка валидации количества сигарет: {e}")
+            await event.message.answer(f"{e}\n\n📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)", format=ParseMode.MARKDOWN)
+            return
+        await event.message.answer("📝 **Были ли у вас попытки бросить курить ранее?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_quit_attempts_keyboard(), _build_back_row("cigs_per_day")]))
+
+    async def handle_quit_attempts_callback(self, event: MessageCallback, payload: QuitAttemptsPayload) -> None:
+        await self._orchestrator.set_quit_attempts(event.from_user.user_id, has_attempts=payload.value == "yes")
+        await event.edit(text="📝 **Используете ли вы электронные сигареты/вейп?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_vape_keyboard(), _build_back_row("quit_attempts")]))
+
+    async def handle_vape_usage_callback(self, event: MessageCallback, payload: VapePayload) -> None:
+        await self._orchestrator.set_uses_vape(event.from_user.user_id, payload.value == "yes")
+        await event.edit(text="📝 **Курит ли кто-то ещё у вас дома/в семье?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_smoker_household_keyboard(), _build_back_row("vape_usage")]))
+
+    async def handle_smoker_household_callback(self, event: MessageCallback, payload: SmokerHouseholdPayload) -> None:
+        await self._orchestrator.set_smoker_in_household(event.from_user.user_id, has_smoker=payload.value == "yes")
+        await event.edit(text="📝 **Получали ли вы ранее лекарственную помощь или консультацию врача для отказа от курения?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_medical_help_keyboard(), _build_back_row("smoker_household")]))
+
+    async def handle_medical_help_callback(self, event: MessageCallback, payload: MedicalHelpPayload) -> None:
+        mapping = {"yes": "Да", "no": "Нет", "not_sure": "Не помню"}
+        medical_help = mapping.get(payload.value)
+        if not medical_help:
+            logger.error("Некорректное значение medical_help")
+            return
+        await self._orchestrator.set_prior_medical_help(event.from_user.user_id, medical_help)
+        await event.edit(
+            text="📋 **Отлично! Теперь заполним опросник никотиновой зависимости (Фагерстрём)**\n\nЭто поможет нам лучше понять ваши привычки курения.\nОпросник состоит из 6 вопросов.\n\nГотовы начать?",
+            format=ParseMode.MARKDOWN,
+            attachments=_make_keyboard([CallbackButton(text="✅ НАЧАТЬ ОПРОС", payload=StartQuestionnairePayload(q_type="fagerstrom").pack()), _build_back_row("medical_help")])
+        )
+
+    async def start_questionnaire_handler(self, event: MessageCallback, payload: StartQuestionnairePayload) -> None:
+        await self._orchestrator.start_questionnaire(event.from_user.user_id, payload.q_type)
+        await self._send_current_question(event.from_user.user_id, event)
+
+    async def handle_back_callback(self, event: MessageCallback, payload: BackPayload) -> None:
+        logger.info(f"Пользователь нажал кнопку 'Назад' с данными: {payload.target}")
+        max_id = event.from_user.user_id
+
+        if payload.target == "consent":
+            await self._orchestrator.delete_registration_session(max_id)
+            await event.edit(
+                text="🎯 **ДОБРО ПОЖАЛОВАТЬ В ИССЛЕДОВАНИЕ max-MI!**\n\n"
+                     "Это исследование помощи в отказе от курения после перенесенного инфаркта миокарда.\n\n"
+                     "**УСЛОВИЯ УЧАСТИЯ:**\n"
+                     "• Исследование длится 6 месяцев\n"
+                     "• Ваши данные полностью анонимны\n"
+                     "• Вы можете выйти из исследования в любой момент\n\n"
+                     "Вы согласны участвовать в исследовании?",
+                attachments=_make_keyboard([
+                    CallbackButton(text="✅ ДА, СОГЛАСЕН", payload=ConsentPayload(choice="yes").pack()),
+                    CallbackButton(text="❌ НЕТ, ОТКАЗЫВАЮСЬ", payload=ConsentPayload(choice="no").pack())
+                ])
+            )
+            return
+
+        if payload.target in ("fagerstrom", "prochaska"):
+            try:
+                await self._orchestrator.go_to_previous_question(max_id)
+            except ValidationError as e:
+                logger.warning(f"Ошибка при возврате к вопросу: {e}")
+                return
+            await self._send_current_question(max_id, event)
+            return
+
+        if payload.target in BACK_STEPS:
+            step, text, back_target = BACK_STEPS[payload.target]
+            await self._orchestrator.go_back_to_step(max_id, step)
+            keyboard_rows = BACK_KEYBOARDS[payload.target]()
+            await event.edit(text=text, format=ParseMode.MARKDOWN, attachments=_make_keyboard(keyboard_rows))
+
+    async def handle_answer_callback(self, event: MessageCallback, payload: AnswerPayload) -> None:
+        max_id = event.from_user.user_id
+        await self._orchestrator.save_answer(max_id, payload.q_type, payload.q_idx, payload.ans_idx)
+
+        if await self._orchestrator.is_questionnaire_completed(max_id, payload.q_type):
+            if payload.q_type == "fagerstrom":
+                result = await self._orchestrator.complete_fagerstrom(max_id)
+                await event.edit(
+                    text=f"📊 **Результаты теста Фагерстрёма:**\n\n• **Общий балл:** {result.score}/10\n• **Уровень зависимости:** {result.level}\n\nТеперь заполним опросник мотивации...",
+                    format=ParseMode.MARKDOWN,
+                    attachments=_make_keyboard([CallbackButton(text="➡️ ПРОДОЛЖИТЬ", payload=StartQuestionnairePayload(q_type="prochaska").pack())])
+                )
+            elif payload.q_type == "prochaska":
+                await self._orchestrator.complete_prochaska(max_id)
+                participant = await self._orchestrator.finalize_registration(max_id)
+                sos_str = f"• /sos — техники по борьбе с тягой к курению\n" if participant.group_name == "B" else ""
+                await event.message.edit(
+                    text=f"✅ **РЕГИСТРАЦИЯ ЗАВЕРШЕНА!**\n\n🆔 **Ваш код участника:** `{participant.participant_code}`\n\n💙 **Спасибо за участие в исследовании!**\n**Доступные команды меню:**\n{sos_str}• /id — показать ваш код участника исследования\n• /help — справка по боту",
+                    format=ParseMode.MARKDOWN,
+                    attachments=[
+
+                    ]
+                )
+        else:
+            await self._send_current_question(max_id, event)
+
+    async def _send_current_question(self, max_id: int, event: MessageCallback) -> None:
+        q = await self._orchestrator.get_current_question(max_id)
+        builder = InlineKeyboardBuilder()
         for i, option in enumerate(q.options):
-            callback = f"answer_{q.callback_prefix}_{q.number - 1}_{i}"
-            keyboard.append([InlineKeyboardButton(option, callback_data=callback)])
-
+            builder.row(CallbackButton(text=option, payload=AnswerPayload(q_type=q.callback_prefix, q_idx=q.number - 1, ans_idx=i).pack()))
         if q.can_go_back:
-            keyboard.append([
-                InlineKeyboardButton("◀️ Назад", callback_data=f"back_{q.callback_prefix}")
-            ])
-
-        return InlineKeyboardMarkup(keyboard)
+            builder.row(CallbackButton(text="◀️ Назад", payload=BackPayload(target=q.callback_prefix).pack()))
+        await event.edit(text=f"📝 **Вопрос {q.number} из {q.total}**\n\n{q.text}", format=ParseMode.MARKDOWN, attachments=[builder.as_markup()])

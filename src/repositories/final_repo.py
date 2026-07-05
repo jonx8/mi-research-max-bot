@@ -9,7 +9,7 @@ from src.models import FinalSurvey, Participant
 
 class PendingFinalSurvey(NamedTuple):
     survey: FinalSurvey
-    telegram_id: int
+    max_id: int
 
 
 class FinalSurveyRepository:
@@ -30,7 +30,7 @@ class FinalSurveyRepository:
     async def get_all_pending_with_participant(self) -> List[PendingFinalSurvey]:
         async with self._db.get_db_session() as session:
             stmt = (
-                select(FinalSurvey, Participant.telegram_id_encrypted)
+                select(FinalSurvey, Participant.max_id_encrypted)
                 .join(Participant, FinalSurvey.participant_code == Participant.participant_code)
                 .where(
                     and_(
@@ -49,9 +49,9 @@ class FinalSurveyRepository:
             pending_items = []
             for row in rows:
                 survey = row[0]
-                telegram_id_encrypted = row[1]
-                telegram_id = encryption_service.decrypt_to_int(telegram_id_encrypted)
-                pending_items.append(PendingFinalSurvey(survey=survey, telegram_id=telegram_id))
+                max_id_encrypted = row[1]
+                max_id = encryption_service.decrypt_to_int(max_id_encrypted)
+                pending_items.append(PendingFinalSurvey(survey=survey, max_id=max_id))
             return pending_items
 
     async def get(self, survey_id):

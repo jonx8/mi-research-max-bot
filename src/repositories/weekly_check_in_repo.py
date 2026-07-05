@@ -9,7 +9,7 @@ from src.models import WeeklyCheckIn, Participant
 
 class PendingWeeklyCheckIn(NamedTuple):
     checkin: WeeklyCheckIn
-    telegram_id: int
+    max_id: int
 
 
 class WeeklyCheckInRepository:
@@ -63,7 +63,7 @@ class WeeklyCheckInRepository:
     async def get_all_pending_with_participant(self) -> List[PendingWeeklyCheckIn]:
         async with self._db.get_db_session() as session:
             stmt = (
-                select(WeeklyCheckIn, Participant.telegram_id_encrypted)
+                select(WeeklyCheckIn, Participant.max_id_encrypted)
                 .join(Participant, WeeklyCheckIn.participant_code == Participant.participant_code)
                 .where(
                     and_(
@@ -82,7 +82,7 @@ class WeeklyCheckInRepository:
             pending_items = []
             for row in rows:
                 checkin = row[0]
-                telegram_id_encrypted = row[1]
-                telegram_id = encryption_service.decrypt_to_int(telegram_id_encrypted)
-                pending_items.append(PendingWeeklyCheckIn(checkin=checkin, telegram_id=telegram_id))
+                max_id_encrypted = row[1]
+                max_id = encryption_service.decrypt_to_int(max_id_encrypted)
+                pending_items.append(PendingWeeklyCheckIn(checkin=checkin, max_id=max_id))
             return pending_items

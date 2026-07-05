@@ -1,8 +1,10 @@
 import logging
 
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ContextTypes
+from maxapi.enums import ParseMode
+from maxapi.types import MessageCallback, CallbackButton, MessageCreated
+from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
+from payloads import FinalPPA30Payload, FinalPPA7Payload, FinalQuitAttemptsPayload
 from src.services import FinalSurveyService
 from src.services import SessionManager
 
@@ -32,134 +34,98 @@ class FinalSurveyHandlers:
         self._final_survey_service = final_survey_service
         self._session_manager = session_manager
 
-    async def handle_final_survey_start(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Step 1: Process 30-day abstinence answer.
-
-        Expected callback data format: "final_{id}_ppa30_{yes/no}"
-
-        Args:
-            update: Telegram update object
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        await query.answer()
-        data = query.data  # "final_{id}_ppa30_{yes/no}"
-
-        parts = data.split('_')
-        survey_id = int(parts[1])
-        answer = parts[3]  # 'yes' or 'no'
-
+    async def handle_final_survey_start(self, event: MessageCallback, payload: FinalPPA30Payload):
+        """Step 1: Process 30-day abstinence answer."""
         logger.info(
-            f"Пользователь начал финальный опрос (survey_id={survey_id}): 30-дневная абстиненция='{answer}'"
+            f"Пользователь начал финальный опрос (survey_id={payload.survey_id}): 30-дневная абстиненция='{payload.answer}'"
         )
 
-        survey = await self._final_survey_service.get_by_id(survey_id)
+        survey = await self._final_survey_service.get_by_id(payload.survey_id)
         if not survey or survey.completed_at:
             logger.warning(
-                f"Пользователь попытался ответить на завершённый или несуществующий финальный опрос (survey_id={survey_id})"
+                f"Пользователь попытался ответить на завершённый или несуществующий финальный опрос (survey_id={payload.survey_id})"
             )
-            await query.edit_message_text("Опрос уже завершён или не найден.")
+            await event.message.edit("Опрос уже завершён или не найден.", attachments=[])
             return
 
-        ppa30 = (answer == 'yes')
+        ppa30 = (payload.answer == 'yes')
         await self._session_manager.create_or_update_final_survey_session(
-            telegram_id=update.effective_user.id,
-            survey_id=survey_id,
+            max_id=event.from_user.user_id,
+            survey_id=payload.survey_id,
             ppa_30d=ppa30
         )
 
         logger.info(
-            f"Пользователь сохранил 30-дневную абстиненцию для опроса (survey_id={survey_id}): {ppa30}"
+            f"Пользователь сохранил 30-дневную абстиненцию для опроса (survey_id={payload.survey_id}): {ppa30}"
         )
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data=f"final_{survey_id}_ppa7_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data=f"final_{survey_id}_ppa7_no")]
-        ])
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="✅ Да", payload=FinalPPA7Payload(survey_id=survey.id, answer="yes").pack()))
+        builder.row(CallbackButton(text="❌ Нет", payload=FinalPPA7Payload(survey_id=survey.id, answer="no").pack()))
 
-        await query.edit_message_text(
+        await event.message.edit(
             "Курили ли Вы хотя бы одну сигарету за последние 7 дней?",
-            reply_markup=keyboard
+            attachments=[builder.as_markup()],
+            format=ParseMode.MARKDOWN
         )
 
-    async def handle_final_ppa7(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Step 2: Process 7-day abstinence answer.
-
-        Expected callback data format: "final_{id}_ppa7_{yes/no}"
-
-        Args:
-            update: Telegram update object
-            _: Context object (unused)
-        """
-        query = update.callback_query
-        await query.answer()
-        data = query.data  # "final_{id}_ppa7_{yes/no}"
-
-        parts = data.split('_')
-        survey_id = int(parts[1])
-        answer = parts[3]
+    async def handle_final_ppa7(self, event: MessageCallback, payload: FinalPPA30Payload):
+        """ Step 2: Process 7-day abstinence answer. """
 
         logger.info(
-            f"Пользователь отвечает на вопрос о 7-дневной абстиненции для опроса (survey_id={survey_id}): ответ='{answer}'"
+            f"Пользователь отвечает на вопрос о 7-дневной абстиненции для опроса (survey_id={payload.survey_id}): ответ='{payload.answer}'"
         )
 
-        session = await self._session_manager.get_final_survey_session_by_id(survey_id)
+        session = await self._session_manager.get_final_survey_session_by_id(payload.survey_id)
         if not session:
             logger.error(
-                f"Сессия финального опроса не найдена (survey_id={survey_id}) для пользователя"
+                f"Сессия финального опроса не найдена (survey_id={payload.survey_id}) для пользователя"
             )
-            await query.edit_message_text("Ошибка сессии. Попробуйте снова.")
+            await event.message.edit("Ошибка сессии. Попробуйте снова.", attachments=[])
             return
 
-        survey = await self._final_survey_service.get_by_id(survey_id)
+        survey = await self._final_survey_service.get_by_id(payload.survey_id)
         if not survey or survey.completed_at:
             logger.error(
-                f"Пользователь попытался ответить на завершённый финальный опрос (survey_id={survey_id})"
+                f"Пользователь попытался ответить на завершённый финальный опрос (survey_id={payload.survey_id})"
             )
-            await query.edit_message_text("Опрос уже завершён.")
+            await event.message.edit("Опрос уже завершён.", attachments=[])
             return
 
-        ppa7 = (answer == 'yes')
+        ppa7 = (payload.answer == 'yes')
         await self._session_manager.update_final_survey_session(
-            survey_id=survey_id,
+            survey_id=payload.survey_id,
             ppa_7d=ppa7
         )
 
         logger.info(
-            f"Пользователь указал 7-дневную абстиненцию для опроса (survey_id={survey_id}): {ppa7}"
+            f"Пользователь указал 7-дневную абстиненцию для опроса (survey_id={session.survey_id}): {ppa7}"
         )
 
         if ppa7:
-            await query.edit_message_text(
-                "📝 Сколько сигарет в день в среднем выкуриваете сейчас? (введите число)"
+            await event.message.edit(
+                "📝 Сколько сигарет в день в среднем выкуриваете сейчас? (введите число)",
+                attachments=[]
             )
             return
 
-        await self._ask_quit_attempt(query, survey_id)
+        await self._ask_quit_attempt(event, payload.survey_id)
 
-    async def handle_final_cigs_input(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Step 3a: Process cigarette count input from user (if still smoking).
-
-        Args:
-            update: Telegram update object with message text
-            _: Context object (unused)
-        """
-        user_id = update.effective_user.id
-        user_input = update.message.text.strip()
+    async def handle_final_cigs_input(self, event: MessageCreated):
+        """ Step 3a: Process cigarette count input from user (if still smoking)."""
+        user_input = event.message.body.text.strip()
 
         logger.info(
             f"Пользователь вводит количество сигарет для финального опроса: '{user_input}'"
         )
 
-        session = await self._session_manager.get_final_survey_session_by_telegram_id(user_id)
+        max_id = event.from_user.user_id
+        session = await self._session_manager.get_final_survey_session_by_max_id(max_id)
         if not session:
             logger.error(
-                f"Сессия финального опроса не найдена для пользователя {user_id}"
+                f"Сессия финального опроса не найдена для пользователя {max_id}"
             )
-            await update.message.reply_text("Ошибка сессии. Попробуйте снова.")
+            await event.message.edit("Ошибка сессии. Попробуйте снова.", attachments=[])
             return
 
         try:
@@ -168,14 +134,14 @@ class FinalSurveyHandlers:
             logger.warning(
                 f"Пользователь ввёл некорректное количество сигарет для опроса (survey_id={session.survey_id}): '{user_input}'"
             )
-            await update.message.reply_text("⚠️ Введите целое число.")
+            await event.message.answer("⚠️ Введите целое число.")
             return
 
         if not (0 <= cigs <= 100):
             logger.warning(
                 f"Пользователь ввёл недопустимое количество сигарет для опроса (survey_id={session.survey_id}): {cigs}"
             )
-            await update.message.reply_text("⚠️ Введите число от 0 до 100.")
+            await event.message.answer("⚠️ Введите число от 0 до 100.")
             return
 
         await self._session_manager.update_final_survey_session(
@@ -187,101 +153,76 @@ class FinalSurveyHandlers:
             f"Пользователь указал количество сигарет в день ({cigs}) для опроса (survey_id={session.survey_id})"
         )
 
-        await self._ask_quit_attempt(update, session.survey_id)
+        await self._ask_quit_attempt(event, session.survey_id)
 
-    async def _ask_quit_attempt(self, destination, survey_id: int):
-        """
-        Ask user about quit attempts in last 6 months.
+    async def _ask_quit_attempt(self, event: MessageCallback | MessageCreated, survey_id: int):
+        """ Ask user about quit attempts in last 6 months."""
 
-        Args:
-            destination: Telegram update or callback query object
-            survey_id: ID of the final survey
-        """
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data=f"final_{survey_id}_quit_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data=f"final_{survey_id}_quit_no")]
-        ])
-
-        text = "Были ли у вас попытки бросить курить за последние 6 месяцев?"
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            CallbackButton(text="✅ Да", payload=FinalQuitAttemptsPayload(survey_id=survey_id, answer='yes').pack()))
+        builder.row(
+            CallbackButton(text="❌ Нет", payload=FinalQuitAttemptsPayload(survey_id=survey_id, answer='no').pack()))
 
         logger.info(
             f"Пользователь переходит к вопросу о попытках бросить для опроса (survey_id={survey_id})"
         )
 
-        if hasattr(destination, 'edit_message_text'):
-            await destination.edit_message_text(text, reply_markup=keyboard)
+        text = "Были ли у вас попытки бросить курить за последние 6 месяцев?"
+
+        if isinstance(event, MessageCreated):
+            await event.message.answer(text=text, attachments=[builder.as_markup()])
         else:
-            await destination.message.reply_text(text, reply_markup=keyboard)
+            await event.message.edit(text=text, attachments=[builder.as_markup()])
 
-    async def handle_final_quit_attempt(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Step 4: Process quit attempt answer.
-
-        Expected callback data format: "final_{id}_quit_{yes/no}"
-
-        Args:
-            update: Telegram update object
-            context: Telegram context object
-        """
-        query = update.callback_query
-        await query.answer()
-        data = query.data  # "final_{id}_quit_{yes/no}"
-
-        parts = data.split('_')
-        survey_id = int(parts[1])
-        answer = parts[3]
-
+    async def handle_final_quit_attempt(self, event: MessageCallback, payload: FinalQuitAttemptsPayload):
+        """Step 4: Process quit attempt answer."""
         logger.info(
-            f"Пользователь отвечает на вопрос о попытках бросить для опроса (survey_id={survey_id}): ответ='{answer}'"
+            f"Пользователь отвечает на вопрос о попытках бросить для опроса (survey_id={payload.survey_id}): ответ='{payload.answer}'"
         )
 
-        session = await self._session_manager.get_final_survey_session_by_id(survey_id)
+        session = await self._session_manager.get_final_survey_session_by_id(payload.survey_id)
         if not session:
             logger.error(
-                f"Сессия финального опроса не найдена (survey_id={survey_id}) для пользователя"
+                f"Сессия финального опроса не найдена (survey_id={payload.survey_id}) для пользователя"
             )
-            await query.edit_message_text("Ошибка сессии.")
+            await event.message.edit("Ошибка сессии.", attachments=[])
             return
 
-        quit_attempt = (answer == 'yes')
+        quit_attempt = (payload.answer == 'yes')
         await self._session_manager.update_final_survey_session(
-            survey_id=survey_id,
+            survey_id=payload.survey_id,
             quit_attempt_made=quit_attempt
         )
 
         logger.info(
-            f"Пользователь сообщил о попытке бросить курить для опроса (survey_id={survey_id}): {quit_attempt}"
+            f"Пользователь сообщил о попытке бросить курить для опроса (survey_id={payload.survey_id}): {quit_attempt}"
         )
 
         if quit_attempt:
-            await query.edit_message_text(
-                "Через сколько дней после начала исследования произошёл первый срыв? (введите число дней)"
+            await event.message.edit(
+                "Через сколько дней после начала исследования произошёл первый срыв? (введите число дней)",
+                attachments=[]
             )
             return
 
-        await self._complete_final_survey(query, context, survey_id)
+        await self._complete_final_survey(event, payload.survey_id)
 
-    async def handle_final_days_input(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Step 5: Process days to first lapse input.
-
-        Args:
-            update: Telegram update object with message text
-            context: Telegram context object
-        """
-        user_id = update.effective_user.id
-        user_input = update.message.text.strip()
+    async def handle_final_days_input(self, event: MessageCreated):
+        """Step 5: Process days to first lapse input."""
+        max_id = event.from_user.user_id
+        user_input = event.message.body.text.strip()
 
         logger.info(
             f"Пользователь вводит количество дней до первого срыва: '{user_input}'"
         )
 
-        session = await self._session_manager.get_final_survey_session_by_telegram_id(user_id)
+        session = await self._session_manager.get_final_survey_session_by_max_id(max_id)
         if not session:
             logger.error(
-                f"Сессия финального опроса не найдена для пользователя {user_id}"
+                f"Сессия финального опроса не найдена для пользователя {max_id}"
             )
-            await update.message.reply_text("Ошибка сессии.")
+            await event.message.edit("Ошибка сессии.", attachments=[])
             return
 
         try:
@@ -290,14 +231,14 @@ class FinalSurveyHandlers:
             logger.warning(
                 f"Пользователь ввёл некорректное количество дней для опроса (survey_id={session.survey_id}): '{user_input}'"
             )
-            await update.message.reply_text("⚠️ Введите целое число дней.")
+            await event.message.answer("⚠️ Введите целое число дней.")
             return
 
         if days < 0 or days > 180:
             logger.warning(
                 f"Пользователь ввёл некорректное количество дней для опроса (survey_id={session.survey_id}): '{user_input}'")
 
-            await update.message.reply_text("⚠️ Количество дней должно быть от 0 до 180.")
+            await event.message.answer("⚠️ Количество дней должно быть от 0 до 180.")
             return
 
         await self._session_manager.update_final_survey_session(
@@ -309,28 +250,15 @@ class FinalSurveyHandlers:
             f"Пользователь указал количество дней до первого срыва ({days}) для опроса (survey_id={session.survey_id})"
         )
 
-        await self._complete_final_survey(update, context, session.survey_id)
+        await self._complete_final_survey(event, session.survey_id)
 
-    async def _complete_final_survey(self, destination, _: ContextTypes.DEFAULT_TYPE, survey_id: int):
-        """
-        Complete final survey and save all collected data.
-
-        Args:
-            destination: Telegram update or callback query object
-            _: Context object (unused)
-            survey_id: ID of the final survey
-        """
+    async def _complete_final_survey(self, event: MessageCallback | MessageCreated, survey_id: int):
+        """Complete final survey and save all collected data."""
         session = await self._session_manager.get_final_survey_session_by_id(survey_id)
         survey = await self._final_survey_service.get_by_id(survey_id)
 
         if not survey or survey.completed_at:
-            logger.warning(
-                f"Попытка завершить уже завершённый опрос (survey_id={survey_id}) для пользователя"
-            )
-            if hasattr(destination, 'edit_message_text'):
-                await destination.edit_message_text("Опрос уже завершён.")
-            else:
-                await destination.message.reply_text("Опрос уже завершён.")
+            await event.message.edit("Опрос уже завершён.", attachments=[])
             return
 
         await self._final_survey_service.complete(
@@ -342,15 +270,13 @@ class FinalSurveyHandlers:
             days_to_first_lapse=session.days_to_first_lapse
         )
 
-        await self._session_manager.delete_final_survey_session(session.survey_id)
+        await self._session_manager.delete_final_survey_session(event.from_user.user_id)
 
-        text = "✅ Спасибо! Финальный опрос завершён. Спасибо за участие в исследовании!\n" \
-               f"📋 **Заполните форму обратной связи:**\n" \
-               f"https://forms.yandex.ru/u/69ea4864068ff035aa33ec68"
+        text = "✅ Спасибо! Финальный опрос завершён. Спасибо за участие в исследовании!\n"
 
-        if hasattr(destination, 'edit_message_text'):
-            await destination.edit_message_text(text, parse_mode='Markdown')
+        if isinstance(event, MessageCreated):
+            await event.message.answer(text, attachments=[])
         else:
-            await destination.message.reply_text(text, parse_mode='Markdown')
+            await event.message.edit(text, attachments=[])
 
         logger.info(f"Финальный опрос (survey_id={survey.id}) успешно завершён")

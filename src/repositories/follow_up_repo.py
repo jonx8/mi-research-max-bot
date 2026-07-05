@@ -9,7 +9,7 @@ from src.models import FollowUp, Participant
 
 class PendingFollowUp(NamedTuple):
     follow_up: FollowUp
-    telegram_id: int
+    max_id: int
 
 
 class FollowUpRepository:
@@ -40,7 +40,7 @@ class FollowUpRepository:
     async def get_all_pending_with_participant(self) -> List[PendingFollowUp]:
         async with self._db.get_db_session() as session:
             stmt = (
-                select(FollowUp, Participant.telegram_id_encrypted)
+                select(FollowUp, Participant.max_id_encrypted)
                 .join(Participant, FollowUp.participant_code == Participant.participant_code)
                 .where(
                     and_(
@@ -58,7 +58,7 @@ class FollowUpRepository:
             pending_items = []
             for row in rows:
                 follow_up = row[0]
-                telegram_id_encrypted = row[1]
-                telegram_id = encryption_service.decrypt_to_int(telegram_id_encrypted)
-                pending_items.append(PendingFollowUp(follow_up=follow_up, telegram_id=telegram_id))
+                max_id_encrypted = row[1]
+                max_id = encryption_service.decrypt_to_int(max_id_encrypted)
+                pending_items.append(PendingFollowUp(follow_up=follow_up, max_id=max_id))
             return pending_items

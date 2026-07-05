@@ -1,5 +1,4 @@
 import random
-from typing import Optional
 
 from src.exceptions import TechniqueNotFoundError
 from src.models import Technique
@@ -17,7 +16,7 @@ class TechniqueService:
             "Вы уже прошли такой путь! Не сдавайтесь сейчас! 🚀"
         ]
 
-    async def get_technique_by_id(self, technique_id: str) -> Optional[Technique]:
+    async def get_technique_by_id(self, technique_id: str) -> Technique:
         """Находит технику по ID через репозиторий"""
         technique = await self._technique_repo.get_by_id(technique_id)
         if not technique:

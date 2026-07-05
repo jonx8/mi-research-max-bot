@@ -2,8 +2,8 @@ import logging
 from datetime import datetime, date
 from typing import List, Optional, Tuple
 
-from telegram import Bot
-from telegram.error import TelegramError
+from maxapi import Bot
+from maxapi.enums import ParseMode
 
 from src.models import Participant
 from src.repositories import InterventionContentRepository
@@ -31,7 +31,7 @@ class InterventionContentSender:
         Initialize the content sender service.
 
         Args:
-            bot: Telegram bot instance
+            bot: Max bot instance
             content_repo: Repository for content operations
             participant_repo: Repository for participant operations
         """
@@ -145,20 +145,24 @@ class InterventionContentSender:
                 continue
 
             try:
-                await self._bot.send_message(
-                    chat_id=participant.telegram_id,
+                result = await self._bot.send_message(
+                    user_id=participant.max_id,
                     text=f"📚 **Образовательная информация** (неделя {week_number})\n\n{content_text}",
-                    parse_mode='Markdown'
+                    format=ParseMode.MARKDOWN
                 )
 
-                await self._content_repo.log_content_sent(participant_code, content_id)
+                if result:
+                    logger.info(
+                        f"Образовательное сообщение отправлено участнику {participant_code} "
+                        f"(неделя {week_number}, content_id: {content_id})"
+                    )
+                    await self._content_repo.log_content_sent(participant_code, content_id)
+                    return
 
-                logger.info(
-                    f"Образовательное сообщение отправлено участнику {participant_code} "
-                    f"(неделя {week_number}, content_id: {content_id})"
+                logger.error(
+                    f"Ошибка отправки образовательного сообщения участнику {participant.participant_code}"
                 )
-
-            except TelegramError as e:
+            except RuntimeError as e:
                 logger.error(
                     f"Ошибка отправки образовательного сообщения участнику {participant.participant_code}: {e}"
                 )
@@ -204,22 +208,22 @@ class InterventionContentSender:
                 continue
 
             try:
-                await self._bot.send_message(
-                    chat_id=participant.telegram_id,
+                result = await self._bot.send_message(
+                    user_id=participant.max_id,
                     text=f"💪 **Мотивационная история** (неделя {week_number})\n\n{content_text}",
-                    parse_mode='Markdown'
+                    format=ParseMode.MARKDOWN
                 )
-
-                await self._content_repo.log_content_sent(participant_code, content_id)
-
-                logger.info(
-                    f"Мотивационное сообщение отправлено участнику {participant_code} "
-                    f"(неделя {week_number}, content_id: {content_id})"
-                )
-
-            except TelegramError as e:
+                if result:
+                    logger.info(
+                        f"Мотивационное сообщение отправлено участнику {participant_code} "
+                        f"(неделя {week_number}, content_id: {content_id})"
+                    )
+                    await self._content_repo.log_content_sent(participant_code, content_id)
+                    return
+                logger.error(f"Ошибка отправки мотивационного сообщения участнику {participant.participant_code}")
+            except RuntimeError as e:
                 logger.error(
-                    f"Ошибка отправки мотивационного сообщения участнику {participant.telegram_id_encrypted}: {e}"
+                    f"Ошибка отправки мотивационного сообщения участнику {participant.participant_code}: {e}"
                 )
 
     async def send_all_messages_for_today(self) -> None:

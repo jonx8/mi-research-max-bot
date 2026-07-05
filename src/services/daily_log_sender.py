@@ -1,9 +1,12 @@
 import logging
 from datetime import datetime, date
 
-from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.error import TelegramError
+from maxapi import Bot
+from maxapi.enums import ParseMode
+from maxapi.types import CallbackButton
+from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
+from payloads import DailyLogPayload
 from src.models import DailyLog
 from src.repositories import BaselineQuestionnaireRepository
 from src.repositories import DailyLogRepository
@@ -31,7 +34,7 @@ class DailyLogSender:
         self._baseline_repo = baseline_repo
         self._batch_sender = batch_sender
 
-    async def _send_tip_message(self, log: DailyLog, telegram_id: int, tip_type: str) -> None:
+    async def _send_tip_message(self, log: DailyLog, max_id: int, tip_type: str) -> None:
         participant = await self._participant_repo.get_by_id(log.participant_code)
 
         if not participant:
@@ -52,38 +55,40 @@ class DailyLogSender:
 
         try:
             await self._bot.send_message(
-                chat_id=telegram_id,
+                user_id=max_id,
                 text=f"💡 **Совет:**\n\n {tip}\n\n",
-                parse_mode='Markdown'
+                format=ParseMode.MARKDOWN,
             )
             if tip_type == 'regular':
                 log.morning_sent_at = datetime.now()
             else:
                 log.high_dep_sent_at = datetime.now()
             await self._daily_log_repo.update(log)
-            logger.info(f"Утреннее сообщение отправлено {telegram_id}")
-        except TelegramError as e:
-            logger.error(f"Ошибка отправки утреннего сообщения {telegram_id}: {e}")
+            logger.info(f"Утреннее сообщение отправлено (участник: {log.participant_code})")
+        except RuntimeError as e:
+            logger.error(f"Ошибка отправки утреннего сообщения (участник: {log.participant_code}) : {e}")
 
-    async def _send_evening_message(self, log: DailyLog, telegram_id: int) -> None:
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да, справился", callback_data=f"daily_{log.id}_yes")],
-            [InlineKeyboardButton("❌ Были трудности", callback_data=f"daily_{log.id}_difficult")],
-            [InlineKeyboardButton("🆘 Сильная тяга", callback_data=f"daily_{log.id}_craving")],
-        ])
+    async def _send_evening_message(self, log: DailyLog, max_id: int) -> None:
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="✅ Да, справился", payload=DailyLogPayload(log_id=log.id, answer="yes").pack()))
+        builder.row(
+            CallbackButton(text="❌ Были трудности", payload=DailyLogPayload(log_id=log.id, answer="difficult").pack()))
+        builder.row(
+            CallbackButton(text="🆘 Сильная тяга", payload=DailyLogPayload(log_id=log.id, answer="craving").pack()))
+
         text = "🌙 **Как прошёл день?**\n\nУдалось ли избежать курения?"
         try:
             await self._bot.send_message(
-                chat_id=telegram_id,
+                user_id=max_id,
                 text=text,
-                reply_markup=keyboard,
-                parse_mode='Markdown'
+                format=ParseMode.MARKDOWN,
+                attachments=[builder.as_markup()],
             )
             log.evening_sent_at = datetime.now()
             await self._daily_log_repo.update(log)
-            logger.info(f"Вечерний опрос отправлен {telegram_id}")
-        except TelegramError as e:
-            logger.error(f"Ошибка отправки вечернего опроса {telegram_id}: {e}")
+            logger.info(f"Вечерний опрос отправлен (участник: {log.participant_code})")
+        except RuntimeError as e:
+            logger.error(f"Ошибка отправки вечернего опроса (участник: {log.participant_code}): {e}")
 
     async def send_morning_messages(self, log_date: date) -> None:
         """Отправляет утренние сообщения всем участникам группы B."""
@@ -97,17 +102,17 @@ class DailyLogSender:
         logs = list(filter(lambda log: not log.morning_sent_at,
                            await self._daily_log_repo.get_or_create_batch(codes, log_date)))
 
-        telegram_ids = {participant.participant_code: participant.telegram_id for participant in participants}
+        max_ids = {participant.participant_code: participant.max_id for participant in participants}
 
         async def send_one(log: DailyLog):
             if log.morning_sent_at:
                 return
-            telegram_id = telegram_ids.get(log.participant_code)
-            if not telegram_id:
-                logger.error(f"Не найден telegram_id для участника {log.participant_code}")
+            max_id = max_ids.get(log.participant_code)
+            if not max_id:
+                logger.error(f"Не найден max_id для участника {log.participant_code}")
                 return
 
-            await self._send_tip_message(log, telegram_id, 'regular')
+            await self._send_tip_message(log, max_id, 'regular')
 
         await self._batch_sender.send(items=logs, send_func=send_one)
 
@@ -122,17 +127,17 @@ class DailyLogSender:
         logs = list(filter(lambda log: not log.high_dep_sent_at,
                            await self._daily_log_repo.get_or_create_batch(codes, log_date)))
 
-        telegram_ids = {participant.participant_code: participant.telegram_id for participant in participants}
+        max_ids = {participant.participant_code: participant.max_id for participant in participants}
 
         async def send_one(log: DailyLog):
             if log.high_dep_sent_at:
                 return
-            telegram_id = telegram_ids.get(log.participant_code)
-            if not telegram_id:
-                logger.error(f"Не найден telegram_id для участника {log.participant_code}")
+            max_id = max_ids.get(log.participant_code)
+            if not max_id:
+                logger.error(f"Не найден max_id для участника {log.participant_code}")
                 return
 
-            await self._send_tip_message(log, telegram_id, 'high_dependence')
+            await self._send_tip_message(log, max_id, 'high_dependence')
 
         await self._batch_sender.send(items=logs, send_func=send_one)
 
@@ -147,15 +152,15 @@ class DailyLogSender:
         logs = list(filter(lambda log: not log.evening_sent_at,
                            await self._daily_log_repo.get_or_create_batch(codes, log_date)))
 
-        telegram_ids = {participant.participant_code: participant.telegram_id for participant in participants}
+        max_ids = {participant.participant_code: participant.max_id for participant in participants}
 
         async def send_one(log: DailyLog):
             if log.evening_sent_at:
                 return
-            telegram_id = telegram_ids.get(log.participant_code)
-            if not telegram_id:
-                logger.error(f"Не найден telegram_id для участника {log.participant_code}")
+            max_id = max_ids.get(log.participant_code)
+            if not max_id:
+                logger.error(f"Не найден max_id для участника {log.participant_code}")
                 return
-            await self._send_evening_message(log, telegram_id)
+            await self._send_evening_message(log, max_id)
 
         await self._batch_sender.send(items=logs, send_func=send_one)

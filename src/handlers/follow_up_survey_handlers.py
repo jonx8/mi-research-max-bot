@@ -1,8 +1,8 @@
 import logging
 
-from telegram import Update
-from telegram.ext import ContextTypes
+from maxapi.types import MessageCallback, MessageCreated
 
+from payloads.follow_up import FollowUpPPA7Payload
 from src.services import FollowUpService
 from src.services import SessionManager
 
@@ -28,87 +28,63 @@ class FollowUpSurveyHandlers:
         self._follow_up_service = follow_up_service
         self._session_manager = session_manager
 
-    async def handle_follow_up_answer(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Process first question of follow-up survey (7-day smoking status).
+    async def handle_follow_up_answer(self, event: MessageCallback, payload: FollowUpPPA7Payload):
+        """Process first question of follow-up survey (7-day smoking status)."""
 
-        Expected callback data format: "followup_{id}_ppa_{yes/no}"
+        logger.info(
+            f"Пользователь отвечает на follow-up опрос (follow_up_id={payload.follow_up_id}): ответ='{payload.answer}'")
 
-        Args:
-            update: Telegram update object
-            _: Telegram context object (unused)
-        """
-        query = update.callback_query
-        await query.answer()
-        data = query.data  # format: "followup_{id}_ppa_{yes/no}"
-
-        parts = data.split('_')
-        if len(parts) != 4:
-            logger.error(f"Некорректный формат данных follow-up: '{data}'")
-            await query.edit_message_text("Некорректный формат данных.")
-            return
-
-        follow_up_id = int(parts[1])
-        answer = parts[3]
-
-        logger.info(f"Пользователь отвечает на follow-up опрос (follow_up_id={follow_up_id}): ответ='{answer}'")
-
-        follow_up = await self._follow_up_service.get_by_id(int(follow_up_id))
+        follow_up = await self._follow_up_service.get_by_id(int(payload.follow_up_id))
         if not follow_up:
-            logger.error(f"Follow-up опрос не найден (follow_up_id={follow_up_id})")
-            await query.edit_message_text("Опрос не найден.")
+            logger.error(f"Follow-up опрос не найден (follow_up_id={payload.follow_up_id})")
+            await event.message.edit("Опрос не найден.", attachments=[])
             return
 
         if follow_up.completed_at:
             logger.warning(
-                f"Пользователь попытался ответить на завершённый follow-up опрос (follow_up_id={follow_up_id})"
+                f"Пользователь попытался ответить на завершённый follow-up опрос (follow_up_id={payload.follow_up_id})"
             )
-            await query.edit_message_text("Вы уже ответили на этот опрос.")
+            await event.message.edit("Вы уже ответили на этот опрос.", attachments=[])
             return
 
-        if answer == 'yes':
+        if payload.answer == 'yes':
             await self._session_manager.create_follow_up_session(
-                telegram_id=update.effective_user.id,
-                follow_up_id=follow_up_id,
+                max_id=event.from_user.user_id,
+                follow_up_id=payload.follow_up_id,
                 ppa_7d=True
             )
 
             logger.info(
-                f"Пользователь указал, что курит, для опроса (follow_up_id={follow_up_id})"
+                f"Пользователь указал, что курит, для опроса (follow_up_id={payload.follow_up_id})"
             )
 
-            await query.edit_message_text(
-                "📝 Сколько сигарет в день в среднем выкуриваете сейчас?\n"
-                "(введите целое число от 0 до 100)"
+            await event.message.edit(
+                text="📝 Сколько сигарет в день в среднем выкуриваете сейчас?\n"
+                     "(введите целое число от 0 до 100)",
+                attachments=[]
             )
             return
 
         await self._follow_up_service.complete(follow_up, ppa_7d=False, cigs_per_day=None)
 
-        logger.info(f"Follow-up опрос (follow_up_id={follow_up_id}) завершён. ppa7d: False")
+        logger.info(f"Follow-up опрос (follow_up_id={payload.follow_up_id}) завершён. ppa7d: False")
 
-        await query.edit_message_text("✅ Спасибо! Ваш ответ записан.")
+        await event.message.edit("✅ Спасибо! Ваш ответ записан.", attachments=[])
 
-    async def handle_follow_up_cigs_input(self, update: Update, _: ContextTypes.DEFAULT_TYPE):
-        """
-        Process cigarette count input after affirmative smoking answer.
-
-        Args:
-            update: Telegram update object with message text
-            _: Telegram context object (unused)
-        """
-        user_id = update.effective_user.id
-        user_input = update.message.text.strip()
+    async def handle_follow_up_cigs_input(self, event: MessageCreated):
+        """Process cigarette count input after affirmative smoking answer."""
+        user_id = event.from_user.user_id
+        user_input = event.message.body.text.strip()
 
         logger.info(
             f"Пользователь вводит количество сигарет для follow-up опроса: '{user_input}'"
         )
 
-        session = await self._session_manager.get_follow_up_session_by_telegram_id(user_id)
+        session = await self._session_manager.get_follow_up_session_by_max_id(user_id)
 
         if not session:
             logger.error(f"Сессия follow-up опроса не найдена для пользователя {user_id}")
-            await update.message.reply_text("Опрос уже завершён или не существует.")
+            await event.message.edit("Опрос уже завершён или не существует.", attachments=[])
             return
 
         try:
@@ -117,14 +93,14 @@ class FollowUpSurveyHandlers:
             logger.warning(
                 f"Пользователь ввёл некорректное количество сигарет для опроса (follow_up_id={session.follow_up_id}): '{user_input}'"
             )
-            await update.message.reply_text("⚠️ Пожалуйста, введите целое число.")
+            await event.message.answer("⚠️ Пожалуйста, введите целое число.")
             return
 
         if not (0 <= cigs <= 100):
             logger.warning(
                 f"Пользователь ввёл недопустимое количество сигарет для опроса (follow_up_id={session.follow_up_id}): {cigs}"
             )
-            await update.message.reply_text("⚠️ Введите число от 0 до 100.")
+            await event.message.answer("⚠️ Введите число от 0 до 100.")
             return
 
         follow_up = await self._follow_up_service.get_by_id(session.follow_up_id)
@@ -135,4 +111,4 @@ class FollowUpSurveyHandlers:
             f"Follow-up опрос (follow_up_id={session.follow_up_id}) завершён для пользователя: курит {cigs} сигарет/день"
         )
 
-        await update.message.reply_text("✅ Спасибо! Ваш ответ записан.")
+        await event.message.answer(text="✅ Спасибо! Ваш ответ записан.", attachments=[])

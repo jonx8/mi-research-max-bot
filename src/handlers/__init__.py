@@ -1,3 +1,4 @@
+from src.handlers.menu_handlers import MenuHandlers
 from src.handlers.final_survey_handlers import FinalSurveyHandlers
 from src.handlers.follow_up_survey_handlers import FollowUpSurveyHandlers
 from src.handlers.registration_handlers import RegistrationHandlers
@@ -11,6 +12,7 @@ __all__ = [
     'FinalSurveyHandlers',
     'FollowUpSurveyHandlers',
     'global_error_handler',
+    'MenuHandlers',
     'RegistrationHandlers',
     'SOSModuleHandlers',
     'WeeklyCheckInHandlers',

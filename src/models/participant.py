@@ -12,7 +12,7 @@ class Participant(Base):
     __tablename__ = 'participants'
 
     participant_code: Mapped[str] = mapped_column(primary_key=True)
-    telegram_id_encrypted: Mapped[str] = mapped_column(
+    max_id_encrypted: Mapped[str] = mapped_column(
         String,
         unique=True,
         nullable=False,
@@ -28,8 +28,8 @@ class Participant(Base):
     clinic_center: Mapped[str] = mapped_column(nullable=False)
 
     @property
-    def telegram_id(self) -> int:
+    def max_id(self) -> int:
         encryption_service = get_encryption_service()
         return encryption_service.decrypt_to_int(
-            self.telegram_id_encrypted
+            self.max_id_encrypted
         )

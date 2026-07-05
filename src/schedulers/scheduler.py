@@ -1,10 +1,15 @@
 import asyncio
 import logging
 from datetime import datetime
+from typing import Optional
 
-from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.error import TelegramError
+from maxapi import Bot
+from maxapi.enums import Intent, ParseMode
+from maxapi.types import CallbackButton
+from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
+from payloads import FollowUpPPA7Payload, FinalPPA30Payload
+from payloads.weekly_checkin import WeeklyCheckInStatusPayload
 from src.config import Config
 from src.models import FollowUp, WeeklyCheckIn, FinalSurvey
 from src.repositories import FollowUpRepository, WeeklyCheckInRepository, FinalSurveyRepository, PendingFollowUp, \
@@ -27,7 +32,7 @@ class SchedulerService:
             weekly_check_in_repo: WeeklyCheckInRepository,
             final_repo: FinalSurveyRepository,
             daily_log_sender: DailyLogSender,
-            google_sheets_exporter: GoogleSheetsExporter
+            google_sheets_exporter: Optional[GoogleSheetsExporter]
     ):
         self._bot = bot
         self._config = config
@@ -75,7 +80,7 @@ class SchedulerService:
         for item in pending_items:
             success = await self._send_follow_up(item)
             if success:
-                await self._session_manager.delete_follow_up_sessions_by_telegram_id(item.telegram_id)
+                await self._session_manager.delete_follow_up_sessions_by_max_id(item.max_id)
                 await self._mark_sent_follow_up(item.follow_up)
             else:
                 logger.warning(f"Follow‑up {item.follow_up.id} не отправлен, пропускаем отметку")
@@ -96,86 +101,100 @@ class SchedulerService:
         for item in pending_items:
             success = await self._send_final_survey(item)
             if success:
-                await self._session_manager.delete_follow_up_sessions_by_telegram_id(item.telegram_id)
+                await self._session_manager.delete_follow_up_sessions_by_max_id(item.max_id)
                 await self._mark_sent_final(item.survey)
             else:
                 logger.warning(f"Final survey {item.survey.id} не отправлен, пропускаем отметку")
 
     async def _send_follow_up(self, item: PendingFollowUp) -> bool:
         follow_up = item.follow_up
-        telegram_id = item.telegram_id
+        max_id = item.max_id
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data=f"followup_{follow_up.id}_ppa_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data=f"followup_{follow_up.id}_ppa_no")]
-        ])
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="✅ Да", intent=Intent.POSITIVE,
+                                   payload=FollowUpPPA7Payload(follow_up_id=follow_up.id, answer="yes").pack()))
+        builder.row(CallbackButton(text="❌ Нет", intent=Intent.NEGATIVE,
+                                   payload=FollowUpPPA7Payload(follow_up_id=follow_up.id, answer="no").pack()))
+
         text = (
             "📋 «Здравствуйте! Напоминаем о вашем участии в исследовании.\n"
             "Пожалуйста, ответьте на несколько коротких вопросов о вашем текущем статусе курения».\n\n"
             "Курили ли Вы хотя бы одну сигарету за последние 7 дней?"
         )
         try:
-            await self._bot.send_message(
-                chat_id=telegram_id,
+            result = await self._bot.send_message(
+                user_id=max_id,
                 text=text,
-                reply_markup=keyboard,
-                parse_mode='Markdown'
+                attachments=[builder.as_markup()],
+
             )
-            logger.info(f"Follow‑up отправлен участнику {telegram_id} (опрос {follow_up.id})")
-            return True
-        except TelegramError as e:
-            logger.error(f"Ошибка отправки follow‑up участнику {telegram_id}: {e}")
+            if result:
+                logger.info(f"Follow‑up отправлен участнику (опрос {follow_up.id})")
+                return True
+            logger.error(f"Ошибка отправки follow-up участнику (опрос {follow_up.id})")
+        except RuntimeError as e:
+            logger.error(f"Ошибка отправки follow‑up участнику (опрос {follow_up.id}): {e}")
             return False
 
     async def _send_weekly_checkin(self, item: PendingWeeklyCheckIn) -> bool:
         checkin = item.checkin
-        telegram_id = item.telegram_id
+        max_id = item.max_id
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚭 Не курил", callback_data=f"weekly_{checkin.id}_status_not")],
-            [InlineKeyboardButton("📅 Эпизодически", callback_data=f"weekly_{checkin.id}_status_some")],
-            [InlineKeyboardButton("🔁 Регулярно", callback_data=f"weekly_{checkin.id}_status_regular")],
-        ])
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            CallbackButton(text="🚭 Не курил",
+                           payload=WeeklyCheckInStatusPayload(checkin_id=checkin.id, answer="not").pack()))
+        builder.row(CallbackButton(text="📅 Эпизодически",
+                                   payload=WeeklyCheckInStatusPayload(checkin_id=checkin.id, answer="some").pack()))
+        builder.row(CallbackButton(text="🔁 Регулярно",
+                                   payload=WeeklyCheckInStatusPayload(checkin_id=checkin.id, answer="regular").pack()))
         text = (
             f"📅 **Чек-ин недели {checkin.week_number}**\n\n"
             "Ваш статус курения за прошедшую неделю:"
         )
         try:
-            await self._bot.send_message(
-                chat_id=telegram_id,
+            result = await self._bot.send_message(
+                user_id=max_id,
                 text=text,
-                reply_markup=keyboard,
-                parse_mode='Markdown'
+                attachments=[builder.as_markup()],
+                format=ParseMode.MARKDOWN,
             )
-            logger.info(f"Weekly check‑in (неделя {checkin.week_number}) отправлен участнику {telegram_id}")
-            return True
-        except TelegramError as e:
-            logger.error(f"Ошибка отправки weekly check‑in участнику {telegram_id}: {e}")
+            if result:
+                logger.info(f"Weekly check‑in (неделя {checkin.week_number}) отправлен участнику")
+                return True
+            logger.error(f"Ошибка отправки weekly check‑in (checkin_id: {checkin.id})")
+            return False
+        except RuntimeError as e:
+            logger.error(f"Ошибка отправки weekly check‑in (checkin_id: {checkin.id}): {e}")
             return False
 
     async def _send_final_survey(self, item: PendingFinalSurvey) -> bool:
         survey = item.survey
-        telegram_id = item.telegram_id
+        max_id = item.max_id
 
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Да", callback_data=f"final_{survey.id}_ppa30_yes")],
-            [InlineKeyboardButton("❌ Нет", callback_data=f"final_{survey.id}_ppa30_no")]
-        ])
+        builder = InlineKeyboardBuilder()
+        builder.row(CallbackButton(text="✅ Да", intent=Intent.POSITIVE,
+                                   payload=FinalPPA30Payload(survey_id=survey.id, answer="yes").pack()))
+        builder.row(CallbackButton(text="❌ Нет", intent=Intent.NEGATIVE,
+                                   payload=FinalPPA30Payload(survey_id=survey.id, answer="no").pack()))
+
         text = (
             "🎯 **Финальный опрос (6 месяцев)**\n\n"
             "Курили ли Вы хотя бы одну сигарету за последние 30 дней?"
         )
         try:
-            await self._bot.send_message(
-                chat_id=telegram_id,
+            result = await self._bot.send_message(
+                user_id=max_id,
                 text=text,
-                reply_markup=keyboard,
-                parse_mode='Markdown'
+                attachments=[builder.as_markup()],
+                format=ParseMode.MARKDOWN,
             )
-            logger.info(f"Финальный опрос отправлен участнику {telegram_id}")
-            return True
-        except TelegramError as e:
-            logger.error(f"Ошибка отправки финального опроса участнику {telegram_id}: {e}")
+            if result:
+                logger.info(f"Финальный опрос отправлен участнику (survey_id: {survey.id})")
+                return True
+            logger.error(f"Ошибка отправки финального опроса участнику (survey_id: {survey.id})")
+        except RuntimeError as e:
+            logger.error(f"Ошибка отправки финального опроса участнику (survey_id: {survey.id}): {e}")
             return False
 
     async def _mark_sent_follow_up(self, follow_up: FollowUp) -> None:

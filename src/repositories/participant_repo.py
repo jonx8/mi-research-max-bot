@@ -47,63 +47,63 @@ class ParticipantRepository:
         async with self._db.get_db_session() as session:
             return await session.get_one(Participant, ident=participant_code)
 
-    async def get_by_telegram_id(self, telegram_id: int) -> Optional[Participant]:
+    async def get_by_max_id(self, max_id: int) -> Optional[Participant]:
         """
-        Retrieve a participant by Telegram ID.
+        Retrieve a participant by Max ID.
 
-        Automatically encrypts the Telegram ID for database lookup
+        Automatically encrypts the Max ID for database lookup
         to match the stored encrypted value.
 
         Args:
-            telegram_id: User's Telegram ID (plaintext)
+            max_id: User's Max ID
 
         Returns:
             Participant object if found, None otherwise
         """
         encryption_service = get_encryption_service()
-        encrypted_id = encryption_service.encrypt(telegram_id)
+        encrypted_id = encryption_service.encrypt(max_id)
 
         async with self._db.get_db_session() as session:
             result = await session.execute(
-                select(Participant).where(Participant.telegram_id_encrypted == encrypted_id)
+                select(Participant).where(Participant.max_id_encrypted == encrypted_id)
             )
             return result.scalar_one_or_none()
 
-    async def get_group_by_telegram_id(self, telegram_id: int) -> Optional[str]:
+    async def get_group_by_max_id(self, max_id: int) -> Optional[str]:
         """
-        Get only the group name for a participant by Telegram ID.
+        Get only the group name for a participant by Max ID.
 
         Args:
-            telegram_id: User's Telegram ID
+            max_id: User's Max ID
 
         Returns:
             Group name ('A' or 'B') if found, None otherwise
         """
         encryption_service = get_encryption_service()
-        encrypted_id = encryption_service.encrypt(telegram_id)
+        encrypted_id = encryption_service.encrypt(max_id)
 
         async with self._db.get_db_session() as session:
             result = await session.execute(
-                select(Participant.group_name).where(Participant.telegram_id_encrypted == encrypted_id)
+                select(Participant.group_name).where(Participant.max_id_encrypted == encrypted_id)
             )
             return result.scalar_one_or_none()
 
-    async def exists(self, telegram_id: int) -> bool:
+    async def exists(self, max_id: int) -> bool:
         """
-        Check if a participant exists by Telegram ID.
+        Check if a participant exists by Max ID.
 
         Args:
-            telegram_id: User's Telegram ID
+            max_id: User's Max ID
 
         Returns:
             True if participant exists, False otherwise
         """
         encryption_service = get_encryption_service()
-        encrypted_id = encryption_service.encrypt(telegram_id)
+        encrypted_id = encryption_service.encrypt(max_id)
 
         async with self._db.get_db_session() as session:
             result = await session.execute(
-                select(Participant.telegram_id_encrypted).where(Participant.telegram_id_encrypted == encrypted_id)
+                select(Participant.max_id_encrypted).where(Participant.max_id_encrypted == encrypted_id)
             )
             return result.scalar_one_or_none() is not None
 

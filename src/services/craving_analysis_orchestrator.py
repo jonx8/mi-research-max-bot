@@ -53,12 +53,12 @@ class CravingAnalysisOrchestrator:
         """Сохраняет изменения сессии в БД"""
         await self._session_manager.update_craving_session(session_obj)
 
-    async def start_analysis(self, telegram_id: int) -> None:
+    async def start_analysis(self, max_id: int) -> None:
         """Начинает анализ тяги"""
-        if await self.is_analysis_active(telegram_id):
+        if await self.is_analysis_active(max_id):
             raise ValidationError("Анализ тяги уже активен")
 
-        await self._session_manager.create_craving_session(telegram_id)
+        await self._session_manager.create_craving_session(max_id)
 
     async def get_current_question(self, user_id: int) -> CravingQuestionData:
         """Возвращает текущий вопрос"""
@@ -114,7 +114,7 @@ class CravingAnalysisOrchestrator:
     async def finish_analysis(self, user_id: int) -> CravingAnalysisResult:
         """Завершает анализ и очищает сессию"""
         result = await self.get_result(user_id)
-        participant = await self._participant_service.get_by_telegram_id(user_id)
+        participant = await self._participant_service.get_by_max_id(user_id)
         await self._craving_analysis_service.create(
             participant_code=participant.participant_code,
             answers=result.answers
@@ -123,6 +123,6 @@ class CravingAnalysisOrchestrator:
         await self._session_manager.delete_craving_session(user_id)
         return result
 
-    async def is_analysis_active(self, telegram_id: int) -> bool:
+    async def is_analysis_active(self, max_id: int) -> bool:
         """Проверяет, активен ли анализ"""
-        return await self._session_manager.has_craving_session(telegram_id)
+        return await self._session_manager.has_craving_session(max_id)
