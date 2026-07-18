@@ -3,7 +3,7 @@ import logging
 from maxapi.enums import ParseMode
 from maxapi.types import MessageCallback
 
-from payloads import DailyLogPayload
+from src.payloads import DailyLogPayload
 from src.services import DailyLogService
 
 logger = logging.getLogger(__name__)

@@ -10,29 +10,56 @@ from maxapi.types.updates.message_callback import MessageCallback
 from maxapi.types.updates.message_created import MessageCreated
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from payloads import ConsentPayload, BackPayload, GenderPayload, ClinicCenterPayload, QuitAttemptsPayload, \
-    VapePayload, SmokerHouseholdPayload, MedicalHelpPayload, StartQuestionnairePayload, AnswerPayload, TechniquePayload, \
-    NewTechniquesPayload, HelpedPayload, AnalyzeCravingPayload, BeginAnalysisPayload, SosPayload, IdPayload, \
-    HelpPayload, DailyLogPayload, FollowUpPPA7Payload, FinalPPA30Payload, FinalPPA7Payload, FinalQuitAttemptsPayload
-from payloads.weekly_checkin import WeeklyCheckInStatusPayload, WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload
-from schedulers import SchedulerService, InterventionContentScheduler
-from scripts.seed_intervention_content import seed_intervention_content
-from scripts.seed_techniques import seed_techniques
-from scripts.seed_tips import seed_morning_tips
-from services import GoogleSheetsExporter, InterventionContentSender
-
-from src.config import Config, setup_logging
+from scripts import seed_intervention_content, seed_techniques, seed_tips
+from src.config.config import Config
+from src.config.logging_config import setup_logging
 from src.database import Database
-from src.handlers import RegistrationHandlers, SOSModuleHandlers, MenuHandlers, FollowUpSurveyHandlers, \
-    WeeklyCheckInHandlers, FinalSurveyHandlers, DailyLogHandlers
-from src.repositories import ParticipantRepository, BaselineQuestionnaireRepository, FollowUpRepository, \
-    WeeklyCheckInRepository, DailyLogRepository, FinalSurveyRepository, MorningTipRepository, \
-    InterventionContentRepository, TechniqueRepository, SOSUsageRepository, CravingAnalysisRepository, SessionRepository
-from src.services import ParticipantService, BaselineQuestionnaireService, FollowUpService, WeeklyCheckInService, \
-    FinalSurveyService, TechniqueService, DailyLogService, SOSUsageService, CravingAnalysisService, SessionManager, \
-    RegistrationOrchestrator, CravingAnalysisOrchestrator, RegistrationStep, DailyLogSender
-from src.utils import init_encryption
-from utils import BatchSender
+from src.handlers.daily_log_handlers import DailyLogHandlers
+from src.handlers.final_survey_handlers import FinalSurveyHandlers
+from src.handlers.follow_up_survey_handlers import FollowUpSurveyHandlers
+from src.handlers.menu_handlers import MenuHandlers
+from src.handlers.registration_handlers import RegistrationHandlers
+from src.handlers.sos_module_handlers import SOSModuleHandlers
+from src.handlers.weekly_check_in_handlers import WeeklyCheckInHandlers
+from src.payloads.daily_log import DailyLogPayload
+from src.payloads.final_survey import FinalPPA30Payload, FinalPPA7Payload, FinalQuitAttemptsPayload
+from src.payloads.follow_up import FollowUpPPA7Payload
+from src.payloads.menu import HelpPayload, IdPayload, MenuPayload, SosPayload
+from src.payloads.registration import AnswerPayload, BackPayload, ClinicCenterPayload, ConsentPayload, GenderPayload, MedicalHelpPayload, QuitAttemptsPayload, SmokerHouseholdPayload, StartQuestionnairePayload, VapePayload
+from src.payloads.sos_module import AnalyzeCravingPayload, BeginAnalysisPayload, HelpedPayload, NewTechniquesPayload, TechniquePayload
+from src.payloads.weekly_checkin import WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload, WeeklyCheckInStatusPayload
+from src.repositories.baseline_repo import BaselineQuestionnaireRepository
+from src.repositories.craving_analysis_repo import CravingAnalysisRepository
+from src.repositories.daily_log_repo import DailyLogRepository
+from src.repositories.final_repo import FinalSurveyRepository
+from src.repositories.follow_up_repo import FollowUpRepository
+from src.repositories.intervention_content_repo import InterventionContentRepository
+from src.repositories.morning_tips_repo import MorningTipRepository
+from src.repositories.participant_repo import ParticipantRepository
+from src.repositories.session_repo import SessionRepository
+from src.repositories.sos_usage_repo import SOSUsageRepository
+from src.repositories.technique_repo import TechniqueRepository
+from src.repositories.weekly_check_in_repo import WeeklyCheckInRepository
+from src.schedulers.intervention_scheduler import InterventionContentScheduler
+from src.schedulers.scheduler import SchedulerService
+from src.services.baseline_questionnaire_service import BaselineQuestionnaireService
+from src.services.craving_analysis_orchestrator import CravingAnalysisOrchestrator
+from src.services.craving_analysis_service import CravingAnalysisService
+from src.services.daily_log_sender import DailyLogSender
+from src.services.daily_log_service import DailyLogService
+from src.services.final_service import FinalSurveyService
+from src.services.follow_up_service import FollowUpService
+from src.services.google_sheets_exporter import GoogleSheetsExporter
+from src.services.intervention_content_sender import InterventionContentSender
+from src.services.participant_service import ParticipantService
+from src.services.registration_orchestrator import RegistrationOrchestrator, RegistrationStep, RegistrationStep
+from src.services.session_manager import SessionManager
+from src.services.sos_usage_service import SOSUsageService
+from src.services.technique_service import TechniqueService
+from src.services.weekly_check_in_service import WeeklyCheckInService
+from src.utils.batch_sender import BatchSender
+from src.utils.encryption import init_encryption
+
 
 config = Config()
 setup_logging(config)
@@ -110,6 +137,10 @@ async def on_bot_started(event: BotStarted):
 async def on_start(event: MessageCreated) -> None:
     await registration_handlers.handle_start(event)
 
+@dp.message_callback(MenuPayload().filter())
+async def on_menu_button(event: MessageCallback) -> None:
+    await event.answer()
+    await menu_handlers.handle_main_menu(event)
 
 @dp.message_callback(IdPayload().filter())
 async def on_id_button(event: MessageCallback) -> None:
@@ -330,9 +361,9 @@ async def on_final_quit_attempt(event: MessageCallback, payload: FinalQuitAttemp
 
 
 async def main() -> None:
-    await seed_techniques()
-    await seed_morning_tips()
-    await seed_intervention_content()
+    await seed_techniques.seed_techniques()
+    await seed_tips.seed_morning_tips()
+    await seed_intervention_content.seed_intervention_content()
     logger.info("База данных инициализирована")
     logger.info("Бот запущен и готов к работе")
     daily_log_sender = DailyLogSender(
@@ -403,7 +434,12 @@ async def main() -> None:
     logger.info("Бот запущен и готов к работе")
     logger.info("Для остановки нажмите Ctrl+C")
 
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        apscheduler.shutdown()
+        await bot.close_session()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

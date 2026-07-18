@@ -6,8 +6,9 @@ from maxapi.enums import ParseMode
 from maxapi.types import CallbackButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from payloads import DailyLogPayload
+from src.payloads import DailyLogPayload
 from src.models import DailyLog
+from src.payloads.menu import MenuPayload
 from src.repositories import BaselineQuestionnaireRepository
 from src.repositories import DailyLogRepository
 from src.repositories import MorningTipRepository
@@ -54,10 +55,16 @@ class DailyLogSender:
         tip = await self._morning_tip_repo.get_random_tip(month_index, tip_type)
 
         try:
+
+            builder = InlineKeyboardBuilder()
+            builder.row(CallbackButton(text="Меню", payload=MenuPayload().pack()))
+            keyboard = builder.as_markup()
+
             await self._bot.send_message(
                 user_id=max_id,
                 text=f"💡 **Совет:**\n\n {tip}\n\n",
                 format=ParseMode.MARKDOWN,
+                attachments=[keyboard],
             )
             if tip_type == 'regular':
                 log.morning_sent_at = datetime.now()
@@ -65,7 +72,8 @@ class DailyLogSender:
                 log.high_dep_sent_at = datetime.now()
             await self._daily_log_repo.update(log)
             logger.info(f"Утреннее сообщение отправлено (участник: {log.participant_code})")
-        except RuntimeError as e:
+        except Exception as e:
+            print(e)
             logger.error(f"Ошибка отправки утреннего сообщения (участник: {log.participant_code}) : {e}")
 
     async def _send_evening_message(self, log: DailyLog, max_id: int) -> None:
@@ -87,7 +95,7 @@ class DailyLogSender:
             log.evening_sent_at = datetime.now()
             await self._daily_log_repo.update(log)
             logger.info(f"Вечерний опрос отправлен (участник: {log.participant_code})")
-        except RuntimeError as e:
+        except Exception as e:
             logger.error(f"Ошибка отправки вечернего опроса (участник: {log.participant_code}): {e}")
 
     async def send_morning_messages(self, log_date: date) -> None:

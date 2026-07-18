@@ -162,7 +162,7 @@ class InterventionContentSender:
                 logger.error(
                     f"Ошибка отправки образовательного сообщения участнику {participant.participant_code}"
                 )
-            except RuntimeError as e:
+            except Exception as e:
                 logger.error(
                     f"Ошибка отправки образовательного сообщения участнику {participant.participant_code}: {e}"
                 )
@@ -221,7 +221,7 @@ class InterventionContentSender:
                     await self._content_repo.log_content_sent(participant_code, content_id)
                     return
                 logger.error(f"Ошибка отправки мотивационного сообщения участнику {participant.participant_code}")
-            except RuntimeError as e:
+            except Exception as e:
                 logger.error(
                     f"Ошибка отправки мотивационного сообщения участнику {participant.participant_code}: {e}"
                 )

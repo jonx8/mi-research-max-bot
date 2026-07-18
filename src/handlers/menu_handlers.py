@@ -3,9 +3,9 @@ from maxapi.types import CallbackButton, MessageCreated, MessageCallback
 from maxapi.types.attachments import AttachmentButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from config import Config
-from payloads import SosPayload, IdPayload, HelpPayload
-from services import ParticipantService
+from src.config import Config
+from src.payloads import SosPayload, IdPayload, HelpPayload
+from src.services import ParticipantService
 
 
 class MenuHandlers:
@@ -26,7 +26,7 @@ class MenuHandlers:
         builder.row(CallbackButton(text="ℹ️ Помощь", payload=HelpPayload().pack()))
         return builder.as_markup()
 
-    async def handle_main_menu(self, event: MessageCreated):
+    async def handle_main_menu(self, event: MessageCreated | MessageCallback):
         max_id = event.from_user.user_id
         keyboard = await self._get_main_keyboard(max_id)
         if await self._participant_service.exists(max_id):
