@@ -9,8 +9,13 @@ load_dotenv()
 class Config:
     """Конфигурация приложения"""
 
-    # Telegram Bot
+    # MAX Bot
     BOT_TOKEN = os.getenv('BOT_TOKEN')
+
+    WEBHOOK_URL = os.getenv('WEBHOOK_URL')
+    WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET')
+    WEBHOOK_HOST = os.getenv('WEBHOOK_HOST', "0.0.0.0")
+    WEBHOOK_PORT = int(os.getenv('WEBHOOK_PORT', "8080"))
 
     # Database
     ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
