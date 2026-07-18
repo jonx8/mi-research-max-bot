@@ -8,10 +8,10 @@ from maxapi.enums import Intent, ParseMode
 from maxapi.types import CallbackButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from payloads import FollowUpPPA7Payload, FinalPPA30Payload
-from payloads.weekly_checkin import WeeklyCheckInStatusPayload
+from src.payloads import FollowUpPPA7Payload, FinalPPA30Payload
 from src.config import Config
 from src.models import FollowUp, WeeklyCheckIn, FinalSurvey
+from src.payloads.weekly_checkin import WeeklyCheckInStatusPayload
 from src.repositories import FollowUpRepository, WeeklyCheckInRepository, FinalSurveyRepository, PendingFollowUp, \
     PendingWeeklyCheckIn, PendingFinalSurvey
 from src.services import GoogleSheetsExporter, DailyLogSender
@@ -132,7 +132,7 @@ class SchedulerService:
                 logger.info(f"Follow‑up отправлен участнику (опрос {follow_up.id})")
                 return True
             logger.error(f"Ошибка отправки follow-up участнику (опрос {follow_up.id})")
-        except RuntimeError as e:
+        except Exception as e:
             logger.error(f"Ошибка отправки follow‑up участнику (опрос {follow_up.id}): {e}")
             return False
 
@@ -164,7 +164,7 @@ class SchedulerService:
                 return True
             logger.error(f"Ошибка отправки weekly check‑in (checkin_id: {checkin.id})")
             return False
-        except RuntimeError as e:
+        except Exception as e:
             logger.error(f"Ошибка отправки weekly check‑in (checkin_id: {checkin.id}): {e}")
             return False
 
@@ -193,7 +193,7 @@ class SchedulerService:
                 logger.info(f"Финальный опрос отправлен участнику (survey_id: {survey.id})")
                 return True
             logger.error(f"Ошибка отправки финального опроса участнику (survey_id: {survey.id})")
-        except RuntimeError as e:
+        except Exception as e:
             logger.error(f"Ошибка отправки финального опроса участнику (survey_id: {survey.id}): {e}")
             return False
 

@@ -3,7 +3,7 @@ import logging
 from maxapi.types import MessageCallback, CallbackButton
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from payloads.weekly_checkin import WeeklyCheckInStatusPayload, WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload
+from src.payloads import WeeklyCheckInStatusPayload, WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload
 from src.services import SessionManager
 from src.services import WeeklyCheckInService
 

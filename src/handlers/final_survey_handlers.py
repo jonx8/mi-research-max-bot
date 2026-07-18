@@ -4,7 +4,7 @@ from maxapi.enums import ParseMode
 from maxapi.types import MessageCallback, CallbackButton, MessageCreated
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from payloads import FinalPPA30Payload, FinalPPA7Payload, FinalQuitAttemptsPayload
+from src.payloads import FinalPPA30Payload, FinalPPA7Payload, FinalQuitAttemptsPayload
 from src.services import FinalSurveyService
 from src.services import SessionManager
 

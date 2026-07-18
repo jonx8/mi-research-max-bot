@@ -7,7 +7,7 @@ from maxapi.types.updates.message_callback import MessageCallback
 from maxapi.types.updates.message_created import MessageCreated
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from payloads import GenderPayload, BackPayload, ClinicCenterPayload, QuitAttemptsPayload, VapePayload, \
+from src.payloads import GenderPayload, BackPayload, ClinicCenterPayload, QuitAttemptsPayload, VapePayload, \
     SmokerHouseholdPayload, MedicalHelpPayload, StartQuestionnairePayload, AnswerPayload, ConsentPayload
 from src.exceptions import ValidationError
 from src.services import ParticipantService, RegistrationOrchestrator, RegistrationStep

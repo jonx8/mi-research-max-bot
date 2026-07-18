@@ -7,7 +7,7 @@ from maxapi.types.updates.message_callback import MessageCallback
 from maxapi.types.updates.message_created import MessageCreated
 from maxapi.utils.inline_keyboard import InlineKeyboardBuilder
 
-from payloads import NewTechniquesPayload, HelpedPayload, AnalyzeCravingPayload, BeginAnalysisPayload, \
+from src.payloads import NewTechniquesPayload, HelpedPayload, AnalyzeCravingPayload, BeginAnalysisPayload, \
     TechniquePayload
 from src.exceptions import ValidationError
 from src.services import CravingAnalysisOrchestrator, ParticipantService, SOSUsageService, TechniqueService

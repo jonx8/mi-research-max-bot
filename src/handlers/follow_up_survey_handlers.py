@@ -2,7 +2,7 @@ import logging
 
 from maxapi.types import MessageCallback, MessageCreated
 
-from payloads.follow_up import FollowUpPPA7Payload
+from src.payloads import FollowUpPPA7Payload
 from src.services import FollowUpService
 from src.services import SessionManager
 

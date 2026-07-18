@@ -29,7 +29,7 @@ def setup_logging(config: Config) -> None:
     aiosqlite_logger.setLevel(logging.WARNING)
 
     httpx_logger = logging.getLogger('httpx')
-    httpx_logger.setLevel(logging.WARNING)
+    httpx_logger.setLevel(logging.DEBUG)
 
     scheduler_logger = logging.getLogger('apscheduler')
     scheduler_logger.setLevel(logging.WARNING)

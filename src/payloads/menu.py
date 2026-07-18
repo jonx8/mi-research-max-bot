@@ -1,5 +1,7 @@
 from maxapi.filters.callback_payload import CallbackPayload
 
+class MenuPayload(CallbackPayload):
+    pass
 
 class IdPayload(CallbackPayload):
     pass
