@@ -1,8 +1,8 @@
 """init
 
-Revision ID: 453c7d27a4ee
+Revision ID: 1d768fcd86eb
 Revises: 
-Create Date: 2026-07-01 02:42:03.827506
+Create Date: 2026-07-19 17:00:26.683667
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '453c7d27a4ee'
+revision: str = '1d768fcd86eb'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -170,7 +170,8 @@ def upgrade() -> None:
     sa.Column('evening_response', sa.String(), nullable=True),
     sa.Column('evening_response_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['participant_code'], ['participants.participant_code'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('participant_code', 'log_date', name='uq_daily_logs_participant_date')
     )
     op.create_table('final_surveys',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -228,7 +229,8 @@ def upgrade() -> None:
     sa.Column('craving_level', sa.Integer(), nullable=True),
     sa.Column('mood', sa.String(), nullable=True),
     sa.ForeignKeyConstraint(['participant_code'], ['participants.participant_code'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('participant_code', 'week_number', name='uq_weekly_checkins_participant_week')
     )
     # ### end Alembic commands ###
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, DateTime, ForeignKey
+from sqlalchemy import String, Integer, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models import Base
@@ -10,6 +10,10 @@ from src.models import Base
 class WeeklyCheckIn(Base):
     """Weekly check-ins (Group B only)."""
     __tablename__ = 'weekly_checkins'
+    __table_args__ = (
+        UniqueConstraint('participant_code', 'week_number', name='uq_weekly_checkins_participant_week'),
+    )
+
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     participant_code: Mapped[str] = mapped_column(

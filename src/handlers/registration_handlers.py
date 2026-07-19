@@ -279,6 +279,9 @@ class RegistrationHandlers:
             return
 
         if payload.target in ("fagerstrom", "prochaska"):
+            if await self._orchestrator.is_questionnaire_completed(max_id, payload.target):
+                await event.answer()
+                return
             try:
                 await self._orchestrator.go_to_previous_question(max_id)
             except ValidationError as e:
@@ -295,6 +298,12 @@ class RegistrationHandlers:
 
     async def handle_answer_callback(self, event: MessageCallback, payload: AnswerPayload) -> None:
         max_id = event.from_user.user_id
+        if await self._orchestrator.is_questionnaire_completed(max_id, payload.q_type):
+                logger.warning(f"Опросник {payload.q_type} уже завершён для {max_id}, пропускаем дубликат")
+                await event.answer()
+                return
+
+
         await self._orchestrator.save_answer(max_id, payload.q_type, payload.q_idx, payload.ans_idx)
 
         if await self._orchestrator.is_questionnaire_completed(max_id, payload.q_type):

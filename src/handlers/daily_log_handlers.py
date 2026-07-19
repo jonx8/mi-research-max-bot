@@ -36,7 +36,10 @@ class DailyLogHandlers:
         # Map values to human-readable format
         response_map = {'yes': 'да', 'difficult': 'трудности', 'craving': 'тяга'}
 
-        await self._daily_service.save_evening_response(payload.log_id, response_map[payload.answer])
+        try:
+            await self._daily_service.save_evening_response(payload.log_id, response_map[payload.answer])
+        except Exception as e:
+            logger.error(f"Ошибка сохранения ответа (log_id={payload.log_id}): {e}")
 
         await event.message.edit(
             text="✅ Спасибо за ответ! Желаем спокойного вечера и хорошего отдыха.",

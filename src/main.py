@@ -25,12 +25,9 @@ from src.payloads.daily_log import DailyLogPayload
 from src.payloads.final_survey import FinalPPA30Payload, FinalPPA7Payload, FinalQuitAttemptsPayload
 from src.payloads.follow_up import FollowUpPPA7Payload
 from src.payloads.menu import HelpPayload, IdPayload, MenuPayload, SosPayload
-from src.payloads.registration import AnswerPayload, BackPayload, ClinicCenterPayload, ConsentPayload, GenderPayload, \
-    MedicalHelpPayload, QuitAttemptsPayload, SmokerHouseholdPayload, StartQuestionnairePayload, VapePayload
-from src.payloads.sos_module import AnalyzeCravingPayload, BeginAnalysisPayload, HelpedPayload, NewTechniquesPayload, \
-    TechniquePayload
-from src.payloads.weekly_checkin import WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload, \
-    WeeklyCheckInStatusPayload
+from src.payloads.registration import AnswerPayload, BackPayload, ClinicCenterPayload, ConsentPayload, GenderPayload, MedicalHelpPayload, QuitAttemptsPayload, SmokerHouseholdPayload, StartQuestionnairePayload, VapePayload
+from src.payloads.sos_module import AnalyzeCravingPayload, BeginAnalysisPayload, HelpedPayload, NewTechniquesPayload, TechniquePayload
+from src.payloads.weekly_checkin import WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload, WeeklyCheckInStatusPayload
 from src.repositories.baseline_repo import BaselineQuestionnaireRepository
 from src.repositories.craving_analysis_repo import CravingAnalysisRepository
 from src.repositories.daily_log_repo import DailyLogRepository
@@ -62,6 +59,7 @@ from src.services.technique_service import TechniqueService
 from src.services.weekly_check_in_service import WeeklyCheckInService
 from src.utils.batch_sender import BatchSender
 from src.utils.encryption import init_encryption
+
 
 config = Config()
 setup_logging(config)
@@ -139,12 +137,10 @@ async def on_bot_started(event: BotStarted):
 async def on_start(event: MessageCreated) -> None:
     await registration_handlers.handle_start(event)
 
-
 @dp.message_callback(MenuPayload().filter())
 async def on_menu_button(event: MessageCallback) -> None:
     await event.answer()
     await menu_handlers.handle_main_menu(event)
-
 
 @dp.message_callback(IdPayload().filter())
 async def on_id_button(event: MessageCallback) -> None:
@@ -454,7 +450,6 @@ async def main() -> None:
     finally:
         apscheduler.shutdown()
         await bot.close_session()
-        logger.info("Бот остановлен")
 
 
 if __name__ == "__main__":

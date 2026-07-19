@@ -44,6 +44,10 @@ class FinalSurveyService:
             quit_attempt_made: bool,
             days_to_first_lapse: Optional[int]
     ) -> FinalSurvey:
+        if survey.completed_at is not None:
+            logger.warning(f"Финальный опрос {survey.id} уже завершён")
+            return survey
+
         survey.completed_at = datetime.now()
         survey.ppa_30d = ppa_30d
         survey.ppa_7d = ppa_7d
