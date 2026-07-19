@@ -1,8 +1,8 @@
 services:
-  mi-research-tg-bot:
+  mi-research-max-bot:
     build: .
-    image: mi-research-tg-bot:1.0.0
-    container_name: mi-research-tg-bot
+    image: mi-research-max-bot:1.0.0
+    container_name: mi-research-max-bot
     restart: unless-stopped
     env_file:
       - .env
@@ -18,5 +18,27 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  nginx:
+    image: nginx:alpine
+    container_name: mi-research-nginx
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./config/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt/live/mi-research-max-bot.ru/fullchain.pem:/etc/ssl/certs/fullchain.pem:ro
+      - /etc/letsencrypt/live/mi-research-max-bot.ru/privkey.pem:/etc/ssl/private/privkey.pem:ro
+      - /etc/letsencrypt/options-ssl-nginx.conf:/etc/letsencrypt/options-ssl-nginx.conf:ro
+      - /etc/letsencrypt/ssl-dhparams.pem:/etc/ssl/certs/dhparam.pem:ro
+      - /etc/localtime:/etc/localtime:ro
+    depends_on:
+      - mi-research-max-bot
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
 volumes:
   mi-research-db:

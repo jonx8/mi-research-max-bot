@@ -435,7 +435,18 @@ async def main() -> None:
     logger.info("Для остановки нажмите Ctrl+C")
 
     try:
-        await dp.start_polling(bot)
+        await bot.subscribe_webhook(url=config.WEBHOOK_URL, secret=config.WEBHOOK_SECRET)
+
+        await dp.handle_webhook(
+            bot=bot,
+            host=config.WEBHOOK_HOST,
+            port=config.WEBHOOK_PORT,
+            secret=config.WEBHOOK_SECRET,
+            path='/webhook',
+        )
+
+    except KeyboardInterrupt:
+        logger.info("Получен сигнал завершения")
     finally:
         apscheduler.shutdown()
         await bot.close_session()

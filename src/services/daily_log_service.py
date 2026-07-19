@@ -16,6 +16,11 @@ class DailyLogService:
         if not log:
             logger.error(f"DailyLog {log_id} не найден при сохранении ответа")
             return
+
+        if log.evening_response_at is not None:
+            logger.warning(f"Ответ уже сохранён для DailyLog {log_id}, пропускаем дубликат")
+            return
+
         log.evening_response = response
         log.evening_response_at = datetime.now()
         await self._daily_log_repo.update(log)
