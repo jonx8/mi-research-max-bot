@@ -11,7 +11,6 @@ __all__ = [
     'DailyLogHandlers',
     'FinalSurveyHandlers',
     'FollowUpSurveyHandlers',
-    'global_error_handler',
     'MenuHandlers',
     'RegistrationHandlers',
     'SOSModuleHandlers',
