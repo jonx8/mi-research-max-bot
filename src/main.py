@@ -25,9 +25,12 @@ from src.payloads.daily_log import DailyLogPayload
 from src.payloads.final_survey import FinalPPA30Payload, FinalPPA7Payload, FinalQuitAttemptsPayload
 from src.payloads.follow_up import FollowUpPPA7Payload
 from src.payloads.menu import HelpPayload, IdPayload, MenuPayload, SosPayload
-from src.payloads.registration import AnswerPayload, BackPayload, ClinicCenterPayload, ConsentPayload, GenderPayload, MedicalHelpPayload, QuitAttemptsPayload, SmokerHouseholdPayload, StartQuestionnairePayload, VapePayload
-from src.payloads.sos_module import AnalyzeCravingPayload, BeginAnalysisPayload, HelpedPayload, NewTechniquesPayload, TechniquePayload
-from src.payloads.weekly_checkin import WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload, WeeklyCheckInStatusPayload
+from src.payloads.registration import AnswerPayload, BackPayload, ClinicCenterPayload, ConsentPayload, GenderPayload, \
+    MedicalHelpPayload, QuitAttemptsPayload, SmokerHouseholdPayload, StartQuestionnairePayload, VapePayload
+from src.payloads.sos_module import AnalyzeCravingPayload, BeginAnalysisPayload, HelpedPayload, NewTechniquesPayload, \
+    TechniquePayload
+from src.payloads.weekly_checkin import WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload, \
+    WeeklyCheckInStatusPayload
 from src.repositories.baseline_repo import BaselineQuestionnaireRepository
 from src.repositories.craving_analysis_repo import CravingAnalysisRepository
 from src.repositories.daily_log_repo import DailyLogRepository
@@ -52,14 +55,13 @@ from src.services.follow_up_service import FollowUpService
 from src.services.google_sheets_exporter import GoogleSheetsExporter
 from src.services.intervention_content_sender import InterventionContentSender
 from src.services.participant_service import ParticipantService
-from src.services.registration_orchestrator import RegistrationOrchestrator, RegistrationStep, RegistrationStep
+from src.services.registration_orchestrator import RegistrationOrchestrator, RegistrationStep
 from src.services.session_manager import SessionManager
 from src.services.sos_usage_service import SOSUsageService
 from src.services.technique_service import TechniqueService
 from src.services.weekly_check_in_service import WeeklyCheckInService
 from src.utils.batch_sender import BatchSender
 from src.utils.encryption import init_encryption
-
 
 config = Config()
 setup_logging(config)
@@ -137,10 +139,12 @@ async def on_bot_started(event: BotStarted):
 async def on_start(event: MessageCreated) -> None:
     await registration_handlers.handle_start(event)
 
+
 @dp.message_callback(MenuPayload().filter())
 async def on_menu_button(event: MessageCallback) -> None:
     await event.answer()
     await menu_handlers.handle_main_menu(event)
+
 
 @dp.message_callback(IdPayload().filter())
 async def on_id_button(event: MessageCallback) -> None:
@@ -435,6 +439,7 @@ async def main() -> None:
     logger.info("Для остановки нажмите Ctrl+C")
 
     try:
+        await bot.delete_webhook()
         await bot.subscribe_webhook(url=config.WEBHOOK_URL, secret=config.WEBHOOK_SECRET)
 
         await dp.handle_webhook(

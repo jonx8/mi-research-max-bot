@@ -2,11 +2,13 @@ from src.payloads.daily_log import DailyLogPayload
 from src.payloads.final_survey import FinalPPA30Payload, FinalPPA7Payload, FinalQuitAttemptsPayload
 from src.payloads.follow_up import FollowUpPPA7Payload
 from src.payloads.menu import HelpPayload, IdPayload, SosPayload, MenuPayload
-from src.payloads.registration import ConsentPayload, GenderPayload, ClinicCenterPayload, QuitAttemptsPayload, VapePayload, \
+from src.payloads.registration import ConsentPayload, GenderPayload, ClinicCenterPayload, QuitAttemptsPayload, \
+    VapePayload, \
     SmokerHouseholdPayload, MedicalHelpPayload, StartQuestionnairePayload, AnswerPayload, BackPayload
 from src.payloads.sos_module import NewTechniquesPayload, TechniquePayload, HelpedPayload, AnalyzeCravingPayload, \
     BeginAnalysisPayload
-from src.payloads.weekly_checkin import WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload, WeeklyCheckInStatusPayload
+from src.payloads.weekly_checkin import WeeklyCheckInCravingPayload, WeeklyCheckInMoodPayload, \
+    WeeklyCheckInStatusPayload
 
 __all__ = [
     'ConsentPayload',
@@ -15,7 +17,7 @@ __all__ = [
     'QuitAttemptsPayload',
     'WeeklyCheckInCravingPayload',
     'WeeklyCheckInMoodPayload',
-    'WeeklyCheckInStatusPayload'
+    'WeeklyCheckInStatusPayload',
     'VapePayload',
     'SmokerHouseholdPayload',
     'MedicalHelpPayload',
@@ -36,4 +38,3 @@ __all__ = [
     'BeginAnalysisPayload',
     'FollowUpPPA7Payload',
 ]
-

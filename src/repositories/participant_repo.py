@@ -19,9 +19,9 @@ class ParticipantRepository:
         """
         self._db = db
 
-    async def save(self, participant: Participant) -> Participant:
+    async def create(self, participant: Participant) -> Participant:
         """
-        Save or update a participant in the database.
+        Create a participant in the database.
 
         Args:
             participant: Participant object to persist
@@ -31,6 +31,21 @@ class ParticipantRepository:
         """
         async with self._db.get_db_session() as session:
             session.add(participant)
+            await session.flush()
+            return participant
+
+    async def update(self, participant: Participant) -> Participant:
+        """
+        Update or create a participant in the database.
+
+        Args:
+            participant: Participant object to persist
+
+        Returns:
+            The saved Participant object
+        """
+        async with self._db.get_db_session() as session:
+            await session.merge(participant)
             await session.flush()
             return participant
 
@@ -88,6 +103,23 @@ class ParticipantRepository:
             )
             return result.scalar_one_or_none()
 
+    async def exists_by_code(self, participant_code: str) -> bool:
+        """
+        Check if a participant exists.
+        Used during code generation to ensure uniqueness.
+
+        Args:
+            participant_code: The 10-digit participant code to check
+
+        Returns:
+            True if participant exists, False otherwise
+        """
+        async with self._db.get_db_session() as session:
+            result = await session.execute(
+                select(Participant.participant_code).where(Participant.participant_code == participant_code)
+            )
+            return result.scalar_one_or_none() is not None
+
     async def exists(self, max_id: int) -> bool:
         """
         Check if a participant exists by Max ID.
@@ -107,23 +139,6 @@ class ParticipantRepository:
             )
             return result.scalar_one_or_none() is not None
 
-    async def exists_by_code(self, participant_code: str) -> bool:
-        """
-        Check if a participant exists by participant code.
-
-        Used during code generation to ensure uniqueness.
-
-        Args:
-            participant_code: The 10-digit participant code to check
-
-        Returns:
-            True if participant with this code exists, False otherwise
-        """
-        async with self._db.get_db_session() as session:
-            result = await session.execute(
-                select(Participant.participant_code).where(Participant.participant_code == participant_code)
-            )
-            return result.scalar_one_or_none() is not None
 
     async def get_all_by_group(self, group_name: str) -> List[Participant]:
         """
