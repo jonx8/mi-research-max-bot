@@ -49,9 +49,10 @@ class RegistrationSession(Base):
     __tablename__ = 'registration_sessions'
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    participant_code: Mapped[str] = mapped_column(String, nullable=True)
     max_id_encrypted: Mapped[str] = mapped_column(String, unique=True)  # Encrypted Max ID
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
-    step: Mapped[str] = mapped_column(String, nullable=False, default='age')
+    step: Mapped[str] = mapped_column(String, nullable=False, default='participant_code')
 
     # Demographics
     age: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

@@ -18,19 +18,30 @@ CLINIC_CENTERS = {
 }
 
 BACK_STEPS = {
-    "age": (RegistrationStep.AGE, "Отлично! Давайте начнем регистрацию.\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)", "consent"),
+    "participant_code": (RegistrationStep.PARTICIPANT_CODE, "📝 **Введите ваш код участника:**", "consent"),
+    "age": (RegistrationStep.AGE,
+            "Отлично! Давайте начнем регистрацию.\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)", "consent"),
     "gender": (RegistrationStep.GENDER, "👤 **Выберите ваш пол:**", "age"),
     "clinic_center": (RegistrationStep.CLINIC_CENTER, "🏥 **В каком клиническом центре вы находитесь?**", "gender"),
-    "smoking_years": (RegistrationStep.SMOKING_YEARS, "🚬 **Расскажите о вашем опыте курения**\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)", "clinic_center"),
-    "cigs_per_day": (RegistrationStep.CIGS_PER_DAY, "📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)", "smoking_years"),
-    "quit_attempts": (RegistrationStep.QUIT_ATTEMPTS, "📝 **Были ли у вас попытки бросить курить ранее?**", "cigs_per_day"),
+    "smoking_years": (RegistrationStep.SMOKING_YEARS,
+                      "🚬 **Расскажите о вашем опыте курения**\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)",
+                      "clinic_center"),
+    "cigs_per_day": (RegistrationStep.CIGS_PER_DAY,
+                     "📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)",
+                     "smoking_years"),
+    "quit_attempts": (RegistrationStep.QUIT_ATTEMPTS, "📝 **Были ли у вас попытки бросить курить ранее?**",
+                      "cigs_per_day"),
     "vape_usage": (RegistrationStep.VAPE_USAGE, "📝 **Используете ли вы электронные сигареты/вейп?**", "quit_attempts"),
-    "smoker_household": (RegistrationStep.SMOKER_HOUSEHOLD, "📝 **Курит ли кто-то ещё у вас дома/в семье?**", "vape_usage"),
-    "medical_help": (RegistrationStep.MEDICAL_HELP, "📝 **Получали ли вы ранее лекарственную помощь или консультацию врача для отказа от курения?**", "smoker_household"),
+    "smoker_household": (RegistrationStep.SMOKER_HOUSEHOLD, "📝 **Курит ли кто-то ещё у вас дома/в семье?**",
+                         "vape_usage"),
+    "medical_help": (RegistrationStep.MEDICAL_HELP,
+                     "📝 **Получали ли вы ранее лекарственную помощь или консультацию врача для отказа от курения?**",
+                     "smoker_household"),
 }
 
 BACK_KEYBOARDS = {
-    "age": lambda: _build_back_row("consent"),
+    "participant_code": lambda: _build_back_row("consent"),
+    "age": lambda: _build_back_row("participant_code"),
     "gender": lambda: _build_gender_keyboard() + _build_back_row("age"),
     "clinic_center": lambda: _build_clinic_center_keyboard() + _build_back_row("gender"),
     "smoking_years": lambda: _build_back_row("clinic_center"),
@@ -54,7 +65,8 @@ def _build_gender_keyboard() -> list:
 
 
 def _build_clinic_center_keyboard() -> list:
-    return [CallbackButton(text=name, payload=ClinicCenterPayload(center=cb_data).pack()) for cb_data, name in CLINIC_CENTERS.items()]
+    return [CallbackButton(text=name, payload=ClinicCenterPayload(center=cb_data).pack()) for cb_data, name in
+            CLINIC_CENTERS.items()]
 
 
 def _build_quit_attempts_keyboard() -> list:
@@ -101,6 +113,7 @@ class RegistrationHandlers:
         self._orchestrator = orchestrator
         self._participant_service = participant_service
         self._text_step_handlers = {
+            RegistrationStep.PARTICIPANT_CODE: self.handle_participant_code,
             RegistrationStep.AGE: self.handle_age,
             RegistrationStep.SMOKING_YEARS: self.handle_smoking_years,
             RegistrationStep.CIGS_PER_DAY: self.handle_cigs_per_day,
@@ -111,12 +124,13 @@ class RegistrationHandlers:
         if await self._participant_service.exists(max_id):
             participant = await self._participant_service.get_by_max_id(max_id)
             logger.info(f"Пользователь уже зарегистрирован (participant_code={participant.participant_code})")
-            await event.send(f"✅ Вы уже зарегистрированы!\nКод: `{participant.participant_code}`\n", format=ParseMode.MARKDOWN)
+            await event.send(f"✅ Вы уже зарегистрированы!\nКод: `{participant.participant_code}`\n",
+                             format=ParseMode.MARKDOWN)
             return
 
         logger.info(f"Пользователь не зарегистрирован, показано согласие на участие")
         await event.send(
-            "🎯 **ДОБРО ПОЖАЛОВАТЬ В ИССЛЕДОВАНИЕ max-MI!**\n\n"
+            "🎯 **ДОБРО ПОЖАЛОВАТЬ В ИССЛЕДОВАНИЕ MAX-MI!**\n\n"
             "Это исследование помощи в отказе от курения после перенесенного инфаркта миокарда.\n\n"
             "**УСЛОВИЯ УЧАСТИЯ:**\n"
             "• Исследование длится 6 месяцев\n"
@@ -136,13 +150,35 @@ class RegistrationHandlers:
             logger.info(f"Пользователь дал согласие на участие в исследовании")
             await self._orchestrator.start_registration(user_id)
             await event.edit(
-                text="Отлично! Давайте начнем регистрацию.\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)",
+                text="📝 **Введите ваш код участника:**",
                 format=ParseMode.MARKDOWN,
                 attachments=_make_keyboard([_build_back_row("consent")])
             )
         else:
             logger.info(f"Пользователь отказался от участия в исследовании")
-            await event.edit(text="Спасибо за ваше время! ❤️\nЕсли передумаете - просто напишите /start", attachments=[])
+            await event.edit(text="Спасибо за ваше время! ❤️\nЕсли передумаете - просто напишите /start",
+                             attachments=[])
+
+    async def handle_participant_code(self, event: MessageCreated) -> None:
+        max_id = event.from_user.user_id
+        code = (event.message.body.text or "").strip()
+
+        try:
+            await self._orchestrator.set_participant_code(max_id, code)
+        except ValidationError as e:
+            logger.warning(f"Ошибка валидации кода участника: {e}")
+            await event.message.answer(
+                f"❌ **Ошибка:** {e}\n\n📝 **Введите ваш код участника:**",
+                format=ParseMode.MARKDOWN,
+                attachments=_make_keyboard([_build_back_row("consent")])
+            )
+            return
+
+        await event.message.answer(
+            "✅ Код принят! Теперь укажите ваш возраст.\n\n📝 **Введите ваш возраст:**\n(целое число от 18 до 120 лет)",
+            format=ParseMode.MARKDOWN,
+            attachments=_make_keyboard([_build_back_row("participant_code")])
+        )
 
     async def handle_text_for_step(self, event: MessageCreated, step: RegistrationStep) -> None:
         handler = self._text_step_handlers.get(step)
@@ -167,16 +203,19 @@ class RegistrationHandlers:
 
     async def handle_age(self, event: MessageCreated) -> None:
         max_id = event.from_user.user_id
-        age = await self._validate_int_input(event, 18, 120, "⚠️ **Ошибка:** пожалуйста, введите число (например: 35)\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)")
+        age = await self._validate_int_input(event, 18, 120,
+                                             "⚠️ **Ошибка:** пожалуйста, введите число (например: 35)\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)")
         if age is None:
             return
         try:
             await self._orchestrator.set_age(max_id, age)
         except ValidationError as e:
             logger.warning(f"Ошибка валидации возраста: {e}")
-            await event.message.answer(f"{e}\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)", format=ParseMode.MARKDOWN)
+            await event.message.answer(f"{e}\n\n📝 **Введите ваш возраст:**\n(число от 18 до 120 лет)",
+                                       format=ParseMode.MARKDOWN)
             return
-        await event.message.answer("👤 **Выберите ваш пол:**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_gender_keyboard(), _build_back_row("age")]))
+        await event.message.answer("👤 **Выберите ваш пол:**", format=ParseMode.MARKDOWN,
+                                   attachments=_make_keyboard([_build_gender_keyboard(), _build_back_row("age")]))
 
     async def handle_gender_callback(self, event: MessageCallback, payload: GenderPayload) -> None:
         max_id = event.from_user.user_id
@@ -186,7 +225,8 @@ class RegistrationHandlers:
             logger.warning(f"Ошибка валидации пола: {e}")
             await event.edit(text=str(e))
             return
-        await event.edit(text="🏥 **В каком клиническом центре вы находитесь?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_clinic_center_keyboard(), _build_back_row("gender")]))
+        await event.edit(text="🏥 **В каком клиническом центре вы находитесь?**", format=ParseMode.MARKDOWN,
+                         attachments=_make_keyboard([_build_clinic_center_keyboard(), _build_back_row("gender")]))
 
     async def handle_clinic_center_callback(self, event: MessageCallback, payload: ClinicCenterPayload) -> None:
         center_name = CLINIC_CENTERS.get(payload.center)
@@ -200,45 +240,62 @@ class RegistrationHandlers:
             logger.warning(f"Ошибка валидации клинического центра: {e}")
             await event.edit(text="Некорректное значение клинического центра")
             return
-        await event.edit(text="🚬 **Расскажите о вашем опыте курения**\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_back_row("clinic_center")]))
+        await event.edit(
+            text="🚬 **Расскажите о вашем опыте курения**\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)",
+            format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_back_row("clinic_center")]))
 
     async def handle_smoking_years(self, event: MessageCreated) -> None:
         max_id = event.from_user.user_id
-        years = await self._validate_int_input(event, 0, 120, "⚠️ **Ошибка:** пожалуйста, введите число\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)")
+        years = await self._validate_int_input(event, 0, 120,
+                                               "⚠️ **Ошибка:** пожалуйста, введите число\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)")
         if years is None:
             return
         try:
             await self._orchestrator.set_smoking_years(max_id, years)
         except ValidationError as e:
             logger.warning(f"Ошибка валидации стажа курения: {e}")
-            await event.message.answer(f"{e}\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)", format=ParseMode.MARKDOWN)
+            await event.message.answer(f"{e}\n\n📝 **Сколько лет вы курите?**\n(введите целое число лет)",
+                                       format=ParseMode.MARKDOWN)
             return
-        await event.message.answer("📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_back_row("smoking_years")]))
+        await event.message.answer(
+            "📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)",
+            format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_back_row("smoking_years")]))
 
     async def handle_cigs_per_day(self, event: MessageCreated) -> None:
         max_id = event.message.sender.user_id
-        cigs = await self._validate_int_input(event, 0, 100, "⚠️ **Ошибка:** пожалуйста, введите число\n\n📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)")
+        cigs = await self._validate_int_input(event, 0, 100,
+                                              "⚠️ **Ошибка:** пожалуйста, введите число\n\n📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)")
         if cigs is None:
             return
         try:
             await self._orchestrator.set_cigs_per_day(max_id, cigs)
         except ValidationError as e:
             logger.warning(f"Ошибка валидации количества сигарет: {e}")
-            await event.message.answer(f"{e}\n\n📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)", format=ParseMode.MARKDOWN)
+            await event.message.answer(
+                f"{e}\n\n📝 **Сколько сигарет в среднем вы выкуриваете в день?**\n(введите целое число от 0 до 100)",
+                format=ParseMode.MARKDOWN)
             return
-        await event.message.answer("📝 **Были ли у вас попытки бросить курить ранее?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_quit_attempts_keyboard(), _build_back_row("cigs_per_day")]))
+        await event.message.answer("📝 **Были ли у вас попытки бросить курить ранее?**", format=ParseMode.MARKDOWN,
+                                   attachments=_make_keyboard(
+                                       [_build_quit_attempts_keyboard(), _build_back_row("cigs_per_day")]))
 
     async def handle_quit_attempts_callback(self, event: MessageCallback, payload: QuitAttemptsPayload) -> None:
         await self._orchestrator.set_quit_attempts(event.from_user.user_id, has_attempts=payload.value == "yes")
-        await event.edit(text="📝 **Используете ли вы электронные сигареты/вейп?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_vape_keyboard(), _build_back_row("quit_attempts")]))
+        await event.edit(text="📝 **Используете ли вы электронные сигареты/вейп?**", format=ParseMode.MARKDOWN,
+                         attachments=_make_keyboard([_build_vape_keyboard(), _build_back_row("quit_attempts")]))
 
     async def handle_vape_usage_callback(self, event: MessageCallback, payload: VapePayload) -> None:
         await self._orchestrator.set_uses_vape(event.from_user.user_id, payload.value == "yes")
-        await event.edit(text="📝 **Курит ли кто-то ещё у вас дома/в семье?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_smoker_household_keyboard(), _build_back_row("vape_usage")]))
+        await event.edit(text="📝 **Курит ли кто-то ещё у вас дома/в семье?**", format=ParseMode.MARKDOWN,
+                         attachments=_make_keyboard(
+                             [_build_smoker_household_keyboard(), _build_back_row("vape_usage")]))
 
     async def handle_smoker_household_callback(self, event: MessageCallback, payload: SmokerHouseholdPayload) -> None:
         await self._orchestrator.set_smoker_in_household(event.from_user.user_id, has_smoker=payload.value == "yes")
-        await event.edit(text="📝 **Получали ли вы ранее лекарственную помощь или консультацию врача для отказа от курения?**", format=ParseMode.MARKDOWN, attachments=_make_keyboard([_build_medical_help_keyboard(), _build_back_row("smoker_household")]))
+        await event.edit(
+            text="📝 **Получали ли вы ранее лекарственную помощь или консультацию врача для отказа от курения?**",
+            format=ParseMode.MARKDOWN,
+            attachments=_make_keyboard([_build_medical_help_keyboard(), _build_back_row("smoker_household")]))
 
     async def handle_medical_help_callback(self, event: MessageCallback, payload: MedicalHelpPayload) -> None:
         mapping = {"yes": "Да", "no": "Нет", "not_sure": "Не помню"}
@@ -250,7 +307,9 @@ class RegistrationHandlers:
         await event.edit(
             text="📋 **Отлично! Теперь заполним опросник никотиновой зависимости (Фагерстрём)**\n\nЭто поможет нам лучше понять ваши привычки курения.\nОпросник состоит из 6 вопросов.\n\nГотовы начать?",
             format=ParseMode.MARKDOWN,
-            attachments=_make_keyboard([CallbackButton(text="✅ НАЧАТЬ ОПРОС", payload=StartQuestionnairePayload(q_type="fagerstrom").pack()), _build_back_row("medical_help")])
+            attachments=_make_keyboard(
+                [CallbackButton(text="✅ НАЧАТЬ ОПРОС", payload=StartQuestionnairePayload(q_type="fagerstrom").pack()),
+                 _build_back_row("medical_help")])
         )
 
     async def start_questionnaire_handler(self, event: MessageCallback, payload: StartQuestionnairePayload) -> None:
@@ -299,10 +358,9 @@ class RegistrationHandlers:
     async def handle_answer_callback(self, event: MessageCallback, payload: AnswerPayload) -> None:
         max_id = event.from_user.user_id
         if await self._orchestrator.is_questionnaire_completed(max_id, payload.q_type):
-                logger.warning(f"Опросник {payload.q_type} уже завершён для {max_id}, пропускаем дубликат")
-                await event.answer()
-                return
-
+            logger.warning(f"Опросник {payload.q_type} уже завершён для {max_id}, пропускаем дубликат")
+            await event.answer()
+            return
 
         await self._orchestrator.save_answer(max_id, payload.q_type, payload.q_idx, payload.ans_idx)
 
@@ -312,7 +370,8 @@ class RegistrationHandlers:
                 await event.edit(
                     text=f"📊 **Результаты теста Фагерстрёма:**\n\n• **Общий балл:** {result.score}/10\n• **Уровень зависимости:** {result.level}\n\nТеперь заполним опросник мотивации...",
                     format=ParseMode.MARKDOWN,
-                    attachments=_make_keyboard([CallbackButton(text="➡️ ПРОДОЛЖИТЬ", payload=StartQuestionnairePayload(q_type="prochaska").pack())])
+                    attachments=_make_keyboard([CallbackButton(text="➡️ ПРОДОЛЖИТЬ", payload=StartQuestionnairePayload(
+                        q_type="prochaska").pack())])
                 )
             elif payload.q_type == "prochaska":
                 await self._orchestrator.complete_prochaska(max_id)
@@ -332,7 +391,9 @@ class RegistrationHandlers:
         q = await self._orchestrator.get_current_question(max_id)
         builder = InlineKeyboardBuilder()
         for i, option in enumerate(q.options):
-            builder.row(CallbackButton(text=option, payload=AnswerPayload(q_type=q.callback_prefix, q_idx=q.number - 1, ans_idx=i).pack()))
+            builder.row(CallbackButton(text=option, payload=AnswerPayload(q_type=q.callback_prefix, q_idx=q.number - 1,
+                                                                          ans_idx=i).pack()))
         if q.can_go_back:
             builder.row(CallbackButton(text="◀️ Назад", payload=BackPayload(target=q.callback_prefix).pack()))
-        await event.edit(text=f"📝 **Вопрос {q.number} из {q.total}**\n\n{q.text}", format=ParseMode.MARKDOWN, attachments=[builder.as_markup()])
+        await event.edit(text=f"📝 **Вопрос {q.number} из {q.total}**\n\n{q.text}", format=ParseMode.MARKDOWN,
+                         attachments=[builder.as_markup()])

@@ -1,10 +1,12 @@
 import hashlib
+import logging
 import secrets
 
 from src.exceptions import UserNotFoundError
 from src.models import Participant
 from src.repositories import ParticipantRepository
 
+logger = logging.getLogger(__name__)
 
 class ParticipantService:
     """Service layer for participant business logic."""
@@ -60,6 +62,12 @@ class ParticipantService:
             raise UserNotFoundError(max_id)
         return participant
 
+    async def get_by_code(self, participant_code: str) -> Participant:
+        participant = await self._repo.get_by_id(participant_code)
+        if not participant:
+            raise UserNotFoundError(participant_code)
+        return participant
+
     async def get_group(self, max_id: int) -> str:
         """
         Get the participant's assigned study group.
@@ -91,6 +99,18 @@ class ParticipantService:
         """
         return await self._repo.exists(max_id)
 
+    async def exists_by_code(self, participant_code: str) -> bool:
+        """
+        Check if a participant exists in the system.
+
+        Args:
+            participant_code: Participant code to check
+
+        Returns:
+            True if participant exists, False otherwise
+        """
+        return await self._repo.exists_by_code(participant_code)
+
     async def save(self, participant: Participant) -> Participant:
         """
         Save a participant to the database.
@@ -101,7 +121,7 @@ class ParticipantService:
         Returns:
             The saved Participant object (may include generated fields)
         """
-        return await self._repo.save(participant)
+        return await self._repo.create(participant)
 
     async def generate_unique_participant_code(self, max_id: int, max_attempts: int = 10) -> str:
         """
@@ -124,3 +144,12 @@ class ParticipantService:
             if not await self._repo.exists_by_code(code):
                 return code
         raise RuntimeError(f"Не удалось сгенерировать уникальный код после {max_attempts} попыток")
+
+    async def set_status_blocked(self, max_id: int) -> None:
+        logger.info("Setting status blocked for participant %s", max_id)
+        participant = await self._repo.get_by_max_id(max_id)
+        if not participant:
+            logger.error("Participant %s does not exist", max_id)
+
+        participant.blocked = True
+        await self._repo.update(participant)

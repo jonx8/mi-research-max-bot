@@ -36,6 +36,7 @@ class RegistrationStep(Enum):
     Defines the sequential stages a user goes through during registration,
     from initial data collection to questionnaire completion.
     """
+    PARTICIPANT_CODE = "participant_code"
     AGE = "age"
     GENDER = "gender"
     CLINIC_CENTER = "clinic_center"
@@ -194,6 +195,26 @@ class RegistrationOrchestrator:
 
         step_value = session.step if isinstance(session.step, str) else session.step.value
         return RegistrationStep(step_value)
+
+    async def set_participant_code(self, max_id: int, code: str) -> None:
+        session = await self._get_session_or_raise(max_id)
+        self._ensure_step(session, RegistrationStep.PARTICIPANT_CODE)
+
+        participant_code = code.strip()
+        if not code or len(participant_code) == 0:
+            raise ValidationError("Код участника не может быть пустым")
+
+        if not code.isdigit() or len(participant_code) > 10:
+            raise ValidationError("Код должен быть десятичным числом длиной не больше десяти")
+
+        existing = await self._participant_service.exists_by_code(participant_code)
+        if existing:
+            raise ValidationError("Этот код участника уже зарегистрирован")
+
+        session.participant_code = code.strip()
+        session.step = RegistrationStep.AGE.value
+        await self._save_session(session)
+        logger.info(f"Установлен код участника: {code}")
 
     async def set_age(self, max_id: int, age: int) -> None:
         """
@@ -640,7 +661,7 @@ class RegistrationOrchestrator:
         Complete the registration process and create the participant.
 
         This method:
-        1. Creates a unique participant code
+        1. Get registration session data
         2. Assigns user randomly to group A or B
         3. Saves participant data
         4. Stores baseline questionnaire answers
@@ -663,8 +684,11 @@ class RegistrationOrchestrator:
             logger.error(f"Попытка повторной регистрации")
             raise ValidationError("Пользователь уже зарегистрирован")
 
-        # Generate participant code and assign group
-        participant_code = await self._participant_service.generate_unique_participant_code(max_id)
+        participant_code = session.participant_code
+        if not participant_code:
+            logger.error("Код участника не установлен в сессии")
+            raise ValidationError("Код участника не установлен")
+
         group = 'A' if random.random() < 0.5 else 'B'
         registration_date = datetime.now()
 
